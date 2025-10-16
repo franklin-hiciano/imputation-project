@@ -78,7 +78,7 @@ function create_franken_minimap2_index_file {
 	module load minimap2
 	minimap2 -d franken_reference_minimap2_index.mmi reference.fasta
 	
-	cd -
+	cd 
 }
 
 
