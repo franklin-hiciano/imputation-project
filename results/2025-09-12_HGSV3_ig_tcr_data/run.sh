@@ -5,6 +5,7 @@ set -euo pipefail
 assemblies_dir=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies
 sample_assembly_names=$(ls ${assemblies_dir}/)
 
+data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long
 
 function get_assemblies {
 	pass	# acquired through globus
@@ -41,6 +42,18 @@ do
 	done <<< "${all_assemblies}"
 done
 }
+
+function count_contigs_fai {
+	ls ${data}/assemblies/assemblies | while read sample
+	do
+		for hap in hap1 hap2
+		do
+			num=`cat ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz.fai | wc -l`
+			echo "${sample}\t${hap}\t${num}"
+		done
+	done > count.txt
+}
+	
 
 function download_hg38 {
 	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${assemblies_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
