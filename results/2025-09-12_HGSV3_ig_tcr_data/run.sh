@@ -55,31 +55,40 @@ function count_contigs_fai {
 }
 	
 
+
 function download_hg38 {
-	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${assemblies_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
+	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${data}/hg38_reference/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
+}
 
+function index_hg38_with_minimap2 {
+	module load minimap2
+	minimap2 -d ${data}/hg38_reference/GRCh38_no_alt.mmi ${data}/hg38_reference/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+}
+
+function align_reads {
+
+minimap2 -ax map-ont GRCh38_no_alt.mmi reads.fastq > aln.sam
+
+
+function align_assemblies {
+	outdir=${data}/aligned_assemblies
+	mkdir outdir
+	for hap in hap1 hap2
+do
+	all_assemblies=$(ls -d ${data}/assemblies/assemblies/*/*${hap}.fasta.gz)
+	while read assembly
+	do
+		minimap2 -x asm5 -t "$THREADS" -c --cs=long --secondary=no "${data}/hg38_reference/GRCh38_no_alt.mmi" "${assembly}" > "${outdir}/$(basename ${assembly}).paf"
+	done 
+done
 }
 
 
-count_all_contigs_multithreaded
-function count_assemblies {
-	ls /sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies | wc -l
-}
-
-
-function get_hg38 {
-	out=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/hg38.fa.gz
-	wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -O ${out} 
-	gunzip ${out}
-}
-
-function align_assemblies_to_hg38 {
-	wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
-	gunzip hg38.fa.gz	
-}
 
 #count_assemblies
 #count_contigs
 #count_contigs_multithreaded
 #count_all_contigs_multithreaded
-download_hg38
+#download_hg38
+index_hg38_with_minimap2
+#align_assemblies
