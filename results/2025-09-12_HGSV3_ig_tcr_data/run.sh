@@ -127,21 +127,22 @@ do
 done
 }
 
+
 function long_read_fofn {
   # builds: sample<TAB>remote_path
   while read -r sample; do
-    fn=$(awk -F'\t' -v s="$sample" '$6 == s {print $1}' "$long_reads_index")
-    printf "%s\t%s\n" "$sample" "$fn"
+    awk -F'\t' -v s="$sample" '
+      $6 == s { printf "%s\t%s\n", s, $1 }
+    ' "$long_reads_index"
   done < sample_names_shortR_longR.txt > long_read_fofn.txt
 }
 
-
-
-function make_batch_file {
-	
-	
-	$(basename file)
+function make_globus_batch_file {
+  while IFS=$'\t' read -r sample path; do
+    printf "%s\t%s\n" "${path#ftp.sra.ebi.ac.uk}" "${long_reads_dir}/$(basename -- "$path")"
+  done < long_read_fofn.txt > long_read_batch_transfer.txt
 }
+
 
 
 function download_with_globus {
@@ -195,6 +196,9 @@ do
 	samtools fastq -1 ${fastq_read1_dir}/$(basename ${cram}).fq -2 ${fastq_read2_dir}/$(basename ${cram}).fq -0 /dev/null -s /dev/null -n ${cram}
 done <<< "${short_read_crams}"
 }
+
+
+
 #get_assemblies
 #count_contigs_fai
 #download_hg38
@@ -203,5 +207,6 @@ done <<< "${short_read_crams}"
 #download_franken_reference
 #convert_cram_to_fastq
 #align_assemblies_parallelized
-long_read_fofn
+#long_read_fofn
 #download_with_globus
+make_globus_batch_file
