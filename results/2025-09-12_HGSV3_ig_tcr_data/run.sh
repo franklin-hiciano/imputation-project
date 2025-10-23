@@ -139,7 +139,10 @@ function long_read_fofn {
 
 function make_globus_batch_file {
   while IFS=$'\t' read -r sample path; do
-    printf "%s\t%s\n" "${path#ftp.sra.ebi.ac.uk}" "${long_reads_dir}/$(basename -- "$path")"
+	path_1000_genomes_endpoint=${path#ftp.sra.ebi.ac.uk}
+	path_minerva=${long_reads_dir}/$(basename -- "${path}")
+	path_mssm_arion_endpoint=${path_minerva#/sc/arion}
+    	printf "%s\t%s\n" "${path_1000_genomes_endpoint}" "${path_mssm_arion_endpoint}"
   done < long_read_fofn.txt > long_read_batch_transfer.txt
 }
 
@@ -148,10 +151,16 @@ function make_globus_batch_file {
 function download_with_globus {
   # usage: download_with_globus
   # requires: long_reads_index, long_reads_dir set; endpoints below set
+  
+  globus transfer $ENDPOINT1: $ENDPOINT2:/path/to/destination --recursive
+  
   long_read_fofn
+
 
   local SRC="14a0be5f-226c-49fe-b65f-dba083d67fc3"   # source collection UUID
   local DST="6621ca70-103f-4670-a5a7-a7d74d7efbb7"   # Minerva/Arion collection UUID
+
+  globus transfer ${SRC} ${DST} --label "HGSVC TSV transfer 0001" --batch  ${scratch}/download_data_using_globus/batch0001.txt
 
   module load python
   globus whoami >/dev/null 2>&1 || globus login
@@ -182,8 +191,16 @@ function download_with_globus {
 
 
 
+function get_long_reads_with_globus {
+	local SRC="14a0be5f-226c-49fe-b65f-dba083d67fc3"   # source collection UUID
+	local DST="6621ca70-103f-4670-a5a7-a7d74d7efbb7"   # Minerva/Arion collection UUID
+	
+	EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2   # EMBL-EBI Public Data
+    	MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
 
+  	globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  long_read_batch_transfer.txt
 
+}
 function download_franken_reference {
 	wget http://immunogenomics.louisville.edu/immune_receptor_genomics/current/reference.fasta -O ${franken_reference_dir}/reference.fasta
 }
@@ -209,4 +226,5 @@ done <<< "${short_read_crams}"
 #align_assemblies_parallelized
 #long_read_fofn
 #download_with_globus
-make_globus_batch_file
+#make_globus_batch_file
+get_long_reads_with_globus
