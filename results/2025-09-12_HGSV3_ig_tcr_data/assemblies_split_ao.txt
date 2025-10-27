@@ -1,5 +1,0 @@
-/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies/HG02018/HG02018.vrk-ps-sseq.asm-hap2.fasta
-/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies/HG00514/HG00514.vrk-ps-sseq.asm-hap1.fasta
-/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies/HG00514/HG00514.vrk-ps-sseq.asm-hap2.fasta
-/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies/HG03520/HG03520.vrk-ps-sseq.asm-hap1.fasta
-/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/assemblies/HG03520/HG03520.vrk-ps-sseq.asm-hap2.fasta
