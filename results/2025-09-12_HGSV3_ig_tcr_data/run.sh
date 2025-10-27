@@ -23,27 +23,27 @@ mkdir -p ${franken_reference_dir}
 
 mapfile -t assemblies < <(find "${assemblies_dir}" -maxdepth 2 -mindepth 2 -name '*.vrk-ps-sseq.asm-hap[12].fasta.gz')
 
-function count_contigs_fai {
-    local assemblies_dir="${data}/assemblies/assemblies"
-    local individual_counts_file="contig_counts.tsv"
+function count_contigs {
+    assemblies_dir="${data}/assemblies/assemblies"
+    individual_counts_file="contig_counts.tsv"
 
     mapfile -t fai_files < <(find "${assemblies_dir}" -maxdepth 2 -mindepth 2 -name '*.vrk-ps-sseq.asm-hap[12].fasta.gz.fai')
     
     echo -e "sample\thap\tcontigs" > "${individual_counts_file}"
     
     for fai_file in "${fai_files[@]}"; do
-        local base_file=$(basename "${fai_file}")
-        local sample="${base_file%%.*}"
-        local hap=$(echo "${base_file}" | grep -o -E 'hap[12]')
-        local num=$(wc -l < "${fai_file}")
+        base_file=$(basename "${fai_file}")
+        sample="${base_file%%.*}"
+        hap=$(echo "${base_file}" | grep -o -E 'hap[12]')
+        num=$(wc -l < "${fai_file}")
         
         printf "%s\t%s\t%s\n" "${sample}" "${hap}" "${num}"
     done >> "${individual_counts_file}"
 }
 
 function sum_contigs_per_sample {
-    local infile="contig_counts.tsv"
-    local outfile="contig_counts_summed.tsv"
+    infile="contig_counts.tsv"
+    outfile="contig_counts_summed.tsv"
 
     echo -e "sample\ttotal_contigs" > "${outfile}"
 
@@ -139,17 +139,11 @@ done <<< "${short_read_crams}"
 }
 
 
-
-#get_assemblies
-#count_contigs_fai
+#count_contigs
+#sum_contigs_per_sample
 #download_hg38
 #index_hg38_with_minimap2
 #align_assemblies
-#download_franken_reference
-#convert_cram_to_fastq
-#align_assemblies_normally
 #long_read_fofn
-#download_with_globus
 #make_globus_batch_file
 #get_long_reads_with_globus
-align_assemblies
