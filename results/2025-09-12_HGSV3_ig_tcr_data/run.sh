@@ -2,12 +2,12 @@
 set -e -x
 set -euo pipefail
 
-THREADS=24 #same as bsub
 data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long
+results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
 hg38_reference_dir=${data}/hg38_reference
 franken_reference_dir=${data}/franken_reference
 assemblies_dir=${data}/assemblies/assemblies
-paf_dir=${data}/paf
+paf_dir=${data}/paf_using_correct_hg38
 fastq_read1_dir=${data}/fastq1
 fastq_read2_dir=${data}/fastq2
 long_reads_index=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data/igsr_HGSVC3.tsv.tsv
@@ -52,17 +52,132 @@ function count_contigs_fai {
 	done > contig_counts.tsv
 	sum_contigs_per_sample
 }
-
+#
+#function download_hg38 {
+#	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
+#}
+#
+#function index_hg38_with_minimap2 {
+#	module load minimap2
+#	minimap2 -d ${hg38_reference_dir}/GRCh38_no_alt.mmi ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
+#}
+#
 function download_hg38 {
-	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
+	url=https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
+	wget ${url} -O ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
 }
 
 function index_hg38_with_minimap2 {
-	module load minimap2
-	minimap2 -d ${hg38_reference_dir}/GRCh38_no_alt.mmi ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
+       module load minimap2
+       minimap2 -d ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
+}
+
+function split_assemblies_into_smaller_lists_for_parallelization {
+	num_parts=24
+	find ${assemblies_dir} -name "*hap*.fasta" > ${results}/all_assemblies.txt
+	split -n l/${num_parts} --additional-suffix=.txt ${results}/all_assemblies.txt ${results}/assemblies_split_
+}
+function align_assemblies_normally {
+    num_cores=48
+
+    module load minimap2
+
+    while read assembly
+    do
+		fname=$(basename "${assembly}")
+
+        	paf="${paf_dir}/${fname}.paf"
+
+        	minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
+        	${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi "${assembly}" \
+        	> "${paf}"
+    done < ${results}/all_assemblies.txt
 }
 
 
+function align_assemblies_parallelized {
+    # Define the number of cores to use, matching the '-n' in bsub and '-t' in minimap2
+    num_cores=24
+
+    # Find the 12 partial file lists
+    assemblies_lists=$(find ${results} -maxdepth 1 -name 'assemblies_split_*.txt')
+
+    # Iterate over the list files, launching one job per file.
+    while read list
+    do
+        # Use basename to create a descriptive job name and for output files
+        job_name=$(basename "${list}" .txt)
+
+        # 1. DEFINE THE COMMAND TO BE SENT TO BSUB
+        # This command is a single shell script that will run on the cluster node.
+        # Note the use of escaped variables (\$) for those that need to be evaluated *inside* the job.
+        # The list file variable ('$list') is not escaped as it is evaluated *before* bsub submission.
+        bsub_command="module load minimap2 && \
+            while read assembly; do \
+                # Evaluate assembly path (inside the job)
+                fname=\$(basename \"\$assembly\"); \
+                paf=\"${paf_dir}/\${fname}.paf\"; \
+                
+                # Run minimap2 using the allocated cores
+                minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
+                ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"\$assembly\" \
+                > \"\$paf\"; \
+            done < ${list}"
+            
+        # 2. SUBMIT THE JOB USING THE DEFINED COMMAND VARIABLE
+        # The ${num_cores} variable is used for both LSF resource allocation and minimap2 threading.
+        bsub -J "${job_name}" \
+        -P "acc_oscarlr" \
+        -n "${num_cores}" \
+        -R "span[hosts=1]" \
+        -R "rusage[mem=6000]" \
+        -q express \
+        -W 12:00 \
+        -o "${paf_dir}/${job_name}.out" \
+        -e "${paf_dir}/${job_name}.err" \
+        "${bsub_command}"
+        
+    done <<< "${assemblies_lists}"
+
+}
+#
+#function align_assemblies_parallelized {
+#    num_cores=16
+#    mem=8000 # Memory in MB
+#
+#    assemblies_lists=$(find ${results} -maxdepth 1 -name 'assemblies_split_*.txt')
+#
+#    while read list
+#    do
+#        job_name=$(basename "${list}" .txt)
+#
+#        bsub_command="module load minimap2 && \
+#            while read assembly; do \
+#                # Evaluate assembly path (inside the job)
+#                fname=\$(basename \"\$assembly\"); \
+#                paf=\"${paf_dir}/\${fname}.paf\"; \
+#
+#                # Run minimap2 using the allocated cores
+#                minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
+#                ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"\$assembly\" \
+#                > \"\$paf\"; \
+#            done < ${list}"
+#
+#        bsub -I \
+#        -J "${job_name}" \
+#        -P "acc_oscarlr" \
+#        -n "${num_cores}" \
+#        -R "span[hosts=1]" \
+#        -R "rusage[mem=${mem}]" \
+#        -q interactive \
+#        -W 12:00 \
+#        "${bsub_command}"
+#
+#    done <<< "${assemblies_lists}"
+#
+#    echo "Launched 12 parallel interactive jobs. Check 'bjobs' for status."
+#}
+#
 function align_assemblies {
 	module load minimap2
 	
@@ -78,55 +193,61 @@ done
 }
 
 
-function align_assemblies_parallelized {
-	module load minimap2
-	alignment_threads=24
-	num_jobs=12
 
-	MIN_BYTES="${MIN_BYTES:-1000000}"	
-	
-	for hap in hap1 hap2
-do
-	all_assemblies=$(ls -d ${assemblies_dir}/*/*${hap}.fasta)
-	while read assembly
-	do
-		echo "RUNNING ASSEMBLY ${assembly}"
-		job_name="align_${assembly}"
-
-		
-      		while [ "$(bjobs -w 2>/dev/null | grep -c 'align_')" -ge ${num_jobs} ]; do
-        		sleep 10
-      		done
-
-		fname=$(basename ${assembly})
-		paf="${paf_dir}/${fname}.paf"
-		if [ -f "${paf}" ]; then
-		  size=$(wc -c < "${paf}" 2>/dev/null || echo 0)
-		  if [ "${size}" -ge "${MIN_BYTES}" ]; then
-		    echo "[SKIP] ${fname}: existing PAF ${size} bytes ≥ ${MIN_BYTES}"
-		    continue
-		  else
-		    echo "[REDO] ${fname}: tiny PAF ${size} bytes < ${MIN_BYTES} — resubmitting"
-		    rm -f "${paf}"
-		  fi
-		fi
-
-		bsub -J "${job_name}" \
-		-P "acc_oscarlr" \
-           	-n "${alignment_threads}" \
-           	-R "span[hosts=1]" \
-		-R "rusage[mem=6000]" \
-           	-q express \
-           	-W 12:00 \
-		-o "${paf_dir}/${fname}.out" \
-		-e "${paf_dir}/${fname}.err" \
-          	 "module load minimap2 && minimap2 -x asm5 -t ${alignment_threads} -c --secondary=no \
-        	    ${data}/hg38_reference/GRCh38_no_alt.mmi ${assembly} \
-		    > ${paf}"
-	done <<< "${all_assemblies}"
-done
-}
-
+#
+#function align_assemblies_parallelized {
+#	module load minimap2
+#	alignment_threads=18
+#	num_jobs=1
+#
+#	MIN_BYTES="${MIN_BYTES:-1000000}"	
+#	
+#	for hap in hap1 hap2
+#do
+#	all_assemblies=$(ls -d ${assemblies_dir}/*/*${hap}.fasta)
+#	while read assembly
+#	do
+#		echo "RUNNING ASSEMBLY ${assembly}"
+#		job_name="align_${assembly}"
+#
+#		
+#      		while [ "$(bjobs -w 2>/dev/null | grep -c 'align_')" -ge ${num_jobs} ]; do
+#        		sleep 10
+#      		done
+#
+#		fname=$(basename ${assembly})
+#		paf="${paf_dir}/${fname}.paf"
+#		if [ -f "${paf}" ]; then
+#		  size=$(wc -c < "${paf}" 2>/dev/null || echo 0)
+#		  if [ "${size}" -ge "${MIN_BYTES}" ]; then
+#		    echo "[SKIP] ${fname}: existing PAF ${size} bytes ≥ ${MIN_BYTES}"
+#		    continue
+#		  else
+#		    echo "[REDO] ${fname}: tiny PAF ${size} bytes < ${MIN_BYTES} — resubmitting"
+#		    rm -f "${paf}"
+#		  fi
+#		fi
+#		
+#		out=${paf_dir}/${fname}.out
+#		err=${paf_dir}/${fname}.err
+#		
+#		rm -f ${out} ${err} ${paf}
+#		bsub -J "${job_name}" \
+#		-P "acc_oscarlr" \
+#           	-n "${alignment_threads}" \
+#           	-R "span[hosts=1]" \
+#		-R "rusage[mem=6000]" \
+#           	-q express \
+#           	-W 4:00 \
+#		-o "${out}" \
+#		-e "${err}" \
+#          	 "module load minimap2 && minimap2 -x asm5 -t ${alignment_threads} -c --secondary=no \
+#        	    ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${assembly} \
+#		    > ${paf}"
+#	done <<< "${all_assemblies}"
+#done
+#}
+#
 
 function long_read_fofn {
   # builds: sample<TAB>remote_path
@@ -145,53 +266,9 @@ function make_globus_batch_file {
     	printf "%s\t%s\n" "${path_1000_genomes_endpoint}" "${path_mssm_arion_endpoint}"
   done < long_read_fofn.txt > long_read_batch_transfer.txt
 }
-
-
-
-function download_with_globus {
-  # usage: download_with_globus
-  # requires: long_reads_index, long_reads_dir set; endpoints below set
-  
-  globus transfer $ENDPOINT1: $ENDPOINT2:/path/to/destination --recursive
-  
-  long_read_fofn
-
-
-  local SRC="14a0be5f-226c-49fe-b65f-dba083d67fc3"   # source collection UUID
-  local DST="6621ca70-103f-4670-a5a7-a7d74d7efbb7"   # Minerva/Arion collection UUID
-
-  globus transfer ${SRC} ${DST} --label "HGSVC TSV transfer 0001" --batch  ${scratch}/download_data_using_globus/batch0001.txt
-
-  module load python
-  globus whoami >/dev/null 2>&1 || globus login
-
-  mkdir -p "${long_reads_dir}"
-
-  # read sample and path, skip blanks
-  while IFS=$'\t' read -r sample remotepath; do
-    [[ -z "$sample" || -z "$remotepath" || "$remotepath" == "#"* ]] && continue
-
-    # per-sample destination dir
-    dest="${long_reads_dir%/}/${sample}"
-    mkdir -p "$dest"
-
-    # submit transfer (recursive in case paths are dirs)
-    echo "Submitting transfer for ${sample}: ${remotepath} -> ${dest}/"
-    globus ls ${SRC}:${remotepath}
-    globus transfer \
-      --label "long_reads_${sample}_$(date +%Y%m%d_%H%M%S)" \
-      --recursive \
-      --preserve-mtime \
-      --verify-checksum \
-      "${SRC}:${remotepath}" \
-      "${DST}:${dest}/"
-
-  done < long_read_fofn.txt
-}
-
-
-
 function get_long_reads_with_globus {
+	module load python
+	
 	local SRC="14a0be5f-226c-49fe-b65f-dba083d67fc3"   # source collection UUID
 	local DST="6621ca70-103f-4670-a5a7-a7d74d7efbb7"   # Minerva/Arion collection UUID
 	
@@ -223,8 +300,10 @@ done <<< "${short_read_crams}"
 #align_assemblies
 #download_franken_reference
 #convert_cram_to_fastq
-#align_assemblies_parallelized
+#align_assemblies_normally
 #long_read_fofn
 #download_with_globus
 #make_globus_batch_file
-get_long_reads_with_globus
+#get_long_reads_with_globus
+split_assemblies_into_smaller_lists_for_parallelization
+align_assemblies_parallelized
