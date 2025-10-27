@@ -13,6 +13,7 @@ fastq_read2_dir=${data}/fastq2
 long_reads_index=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data/igsr_HGSVC3.tsv.tsv
 long_reads_dir=${data}/long_reads
 
+
 mkdir -p ${long_reads_dir}
 mkdir -p ${fastq_read1_dir}
 mkdir -p ${fastq_read2_dir}
@@ -20,235 +21,81 @@ mkdir -p ${hg38_reference_dir}
 mkdir -p ${paf_dir}
 mkdir -p ${franken_reference_dir}
 
-function get_assemblies {
-	pass	# acquired through globus
+mapfile -t assemblies < <(find "${assemblies_dir}" -maxdepth 2 -mindepth 2 -name '*.vrk-ps-sseq.asm-hap[12].fasta.gz')
+
+function count_contigs_fai {
+    local assemblies_dir="${data}/assemblies/assemblies"
+    local individual_counts_file="contig_counts.tsv"
+
+    mapfile -t fai_files < <(find "${assemblies_dir}" -maxdepth 2 -mindepth 2 -name '*.vrk-ps-sseq.asm-hap[12].fasta.gz.fai')
+    
+    echo -e "sample\thap\tcontigs" > "${individual_counts_file}"
+    
+    for fai_file in "${fai_files[@]}"; do
+        local base_file=$(basename "${fai_file}")
+        local sample="${base_file%%.*}"
+        local hap=$(echo "${base_file}" | grep -o -E 'hap[12]')
+        local num=$(wc -l < "${fai_file}")
+        
+        printf "%s\t%s\t%s\n" "${sample}" "${hap}" "${num}"
+    done >> "${individual_counts_file}"
 }
 
 function sum_contigs_per_sample {
-  infile="contig_counts.tsv"
-  outfile="contig_counts_summed.tsv"
-  echo -e "sample\ttotal_contigs" > ${outfile}
+    local infile="contig_counts.tsv"
+    local outfile="contig_counts_summed.tsv"
 
-  # Use awk to sum hap1 + hap2 per sample
-  awk -F'\t' '
-  {
-    counts[$1] += $3
-  }
-  END {
-    for (sample in counts)
-      printf "%s\t%d\n", sample, counts[sample]
-  }' ${infile} | sort -k1,1 >> ${outfile}
+    echo -e "sample\ttotal_contigs" > "${outfile}"
+
+    awk -F'\t' ' 
+    NR > 1 {
+      counts[$1] += $3
+    }
+    END {
+      for (sample in counts)
+        printf "%s\t%d\n", sample, counts[sample]
+    }' "${infile}" | sort -k1,1 >> "${outfile}"
 }
-	
-function count_contigs_fai {
-	samtools fastq -1 paired1.fq -2 paired2.fq -0 /dev/null -s /dev/null -n input.bam > single_end.fqls ${data}/assemblies/assemblies | while read sample
-	do
-		
-		for hap in hap1 hap2
-		do
-			num=`cat ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz.fai | wc -l`
-			printf "%s\t%s\t%s\n" "${sample}" "${hap}" "${num}"
-		done
-	done > contig_counts.tsv
-	sum_contigs_per_sample
-}
-#
-#function download_hg38 {
-#	wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz -O ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz 
-#}
-#
-#function index_hg38_with_minimap2 {
-#	module load minimap2
-#	minimap2 -d ${hg38_reference_dir}/GRCh38_no_alt.mmi ${hg38_reference_dir}/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
-#}
-#
+
 function download_hg38 {
 	url=https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
-	wget ${url} -O ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
+        wget ${url} -O ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
 }
 
 function index_hg38_with_minimap2 {
-       module load minimap2
-       minimap2 -d ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
-}
-
-function split_assemblies_into_smaller_lists_for_parallelization {
-	num_parts=24
-	find ${assemblies_dir} -name "*hap*.fasta" > ${results}/all_assemblies.txt
-	split -n l/${num_parts} --additional-suffix=.txt ${results}/all_assemblies.txt ${results}/assemblies_split_
-}
-function align_assemblies_normally {
-    num_cores=48
-
-    module load minimap2
-
-    while read assembly
-    do
-		fname=$(basename "${assembly}")
-
-        	paf="${paf_dir}/${fname}.paf"
-
-        	minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
-        	${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi "${assembly}" \
-        	> "${paf}"
-    done < ${results}/all_assemblies.txt
-}
-
-
-function align_assemblies_parallelized {
-    # Define the number of cores to use, matching the '-n' in bsub and '-t' in minimap2
-    num_cores=24
-
-    # Find the 12 partial file lists
-    assemblies_lists=$(find ${results} -maxdepth 1 -name 'assemblies_split_*.txt')
-
-    # Iterate over the list files, launching one job per file.
-    while read list
-    do
-        # Use basename to create a descriptive job name and for output files
-        job_name=$(basename "${list}" .txt)
-
-        # 1. DEFINE THE COMMAND TO BE SENT TO BSUB
-        # This command is a single shell script that will run on the cluster node.
-        # Note the use of escaped variables (\$) for those that need to be evaluated *inside* the job.
-        # The list file variable ('$list') is not escaped as it is evaluated *before* bsub submission.
-        bsub_command="module load minimap2 && \
-            while read assembly; do \
-                # Evaluate assembly path (inside the job)
-                fname=\$(basename \"\$assembly\"); \
-                paf=\"${paf_dir}/\${fname}.paf\"; \
-                
-                # Run minimap2 using the allocated cores
-                minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
-                ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"\$assembly\" \
-                > \"\$paf\"; \
-            done < ${list}"
-            
-        # 2. SUBMIT THE JOB USING THE DEFINED COMMAND VARIABLE
-        # The ${num_cores} variable is used for both LSF resource allocation and minimap2 threading.
-        bsub -J "${job_name}" \
-        -P "acc_oscarlr" \
-        -n "${num_cores}" \
-        -R "span[hosts=1]" \
-        -R "rusage[mem=6000]" \
-        -q express \
-        -W 12:00 \
-        -o "${paf_dir}/${job_name}.out" \
-        -e "${paf_dir}/${job_name}.err" \
-        "${bsub_command}"
-        
-    done <<< "${assemblies_lists}"
-
-}
-#
-#function align_assemblies_parallelized {
-#    num_cores=16
-#    mem=8000 # Memory in MB
-#
-#    assemblies_lists=$(find ${results} -maxdepth 1 -name 'assemblies_split_*.txt')
-#
-#    while read list
-#    do
-#        job_name=$(basename "${list}" .txt)
-#
-#        bsub_command="module load minimap2 && \
-#            while read assembly; do \
-#                # Evaluate assembly path (inside the job)
-#                fname=\$(basename \"\$assembly\"); \
-#                paf=\"${paf_dir}/\${fname}.paf\"; \
-#
-#                # Run minimap2 using the allocated cores
-#                minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
-#                ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"\$assembly\" \
-#                > \"\$paf\"; \
-#            done < ${list}"
-#
-#        bsub -I \
-#        -J "${job_name}" \
-#        -P "acc_oscarlr" \
-#        -n "${num_cores}" \
-#        -R "span[hosts=1]" \
-#        -R "rusage[mem=${mem}]" \
-#        -q interactive \
-#        -W 12:00 \
-#        "${bsub_command}"
-#
-#    done <<< "${assemblies_lists}"
-#
-#    echo "Launched 12 parallel interactive jobs. Check 'bjobs' for status."
-#}
-#
-function align_assemblies {
 	module load minimap2
-	
-	for hap in hap1 hap2
-do
-	all_assemblies=$(ls -d ${assemblies_dir}/*/*${hap}.fasta)
-	while read assembly
-	do
-		echo "RUNNING ASSEMBLY ${assembly}"
-		minimap2 -x asm5 -t "$THREADS" -c --secondary=no "${data}/hg38_reference/GRCh38_no_alt.mmi" "${assembly}" > "${paf_dir}/$(basename ${assembly}).paf"
-	done <<< "${all_assemblies}"
-done
+        minimap2 -d ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.fa
 }
 
+function align_assemblies {
 
+  local num_cores=16
 
-#
-#function align_assemblies_parallelized {
-#	module load minimap2
-#	alignment_threads=18
-#	num_jobs=1
-#
-#	MIN_BYTES="${MIN_BYTES:-1000000}"	
-#	
-#	for hap in hap1 hap2
-#do
-#	all_assemblies=$(ls -d ${assemblies_dir}/*/*${hap}.fasta)
-#	while read assembly
-#	do
-#		echo "RUNNING ASSEMBLY ${assembly}"
-#		job_name="align_${assembly}"
-#
-#		
-#      		while [ "$(bjobs -w 2>/dev/null | grep -c 'align_')" -ge ${num_jobs} ]; do
-#        		sleep 10
-#      		done
-#
-#		fname=$(basename ${assembly})
-#		paf="${paf_dir}/${fname}.paf"
-#		if [ -f "${paf}" ]; then
-#		  size=$(wc -c < "${paf}" 2>/dev/null || echo 0)
-#		  if [ "${size}" -ge "${MIN_BYTES}" ]; then
-#		    echo "[SKIP] ${fname}: existing PAF ${size} bytes ≥ ${MIN_BYTES}"
-#		    continue
-#		  else
-#		    echo "[REDO] ${fname}: tiny PAF ${size} bytes < ${MIN_BYTES} — resubmitting"
-#		    rm -f "${paf}"
-#		  fi
-#		fi
-#		
-#		out=${paf_dir}/${fname}.out
-#		err=${paf_dir}/${fname}.err
-#		
-#		rm -f ${out} ${err} ${paf}
-#		bsub -J "${job_name}" \
-#		-P "acc_oscarlr" \
-#           	-n "${alignment_threads}" \
-#           	-R "span[hosts=1]" \
-#		-R "rusage[mem=6000]" \
-#           	-q express \
-#           	-W 4:00 \
-#		-o "${out}" \
-#		-e "${err}" \
-#          	 "module load minimap2 && minimap2 -x asm5 -t ${alignment_threads} -c --secondary=no \
-#        	    ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${assembly} \
-#		    > ${paf}"
-#	done <<< "${all_assemblies}"
-#done
-#}
-#
+  for assembly_file in "${assemblies[@]}"; do
 
+    local fname=$(basename "${assembly_file}")
+    local job_name="${fname%.fasta.gz}"
+    local paf_output="${paf_dir}/${job_name}.paf"
+
+    local bsub_command="module load minimap2 && \
+      minimap2 -x asm5 -t ${num_cores} -c --secondary=no \
+      ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${assembly_file}\" \
+      > \"${paf_output}\""
+
+    echo "Submitting ${job_name}..."
+    bsub -J "${job_name}" \
+      -P "acc_oscarlr" \
+      -n "${num_cores}" \
+      -R "span[hosts=1]" \
+      -R "rusage[mem=8000]" \
+      -q express \
+      -W 12:00 \
+      -o "${paf_dir}/${job_name}.out" \
+      -e "${paf_dir}/${job_name}.err" \
+      "${bsub_command}"
+
+  done
+}
 function long_read_fofn {
   # builds: sample<TAB>remote_path
   while read -r sample; do
@@ -305,5 +152,4 @@ done <<< "${short_read_crams}"
 #download_with_globus
 #make_globus_batch_file
 #get_long_reads_with_globus
-split_assemblies_into_smaller_lists_for_parallelization
-align_assemblies_parallelized
+align_assemblies
