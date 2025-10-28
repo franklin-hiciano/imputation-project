@@ -4,6 +4,8 @@ set -euo pipefail
 
 data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long
 results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
+
+
 hg38_reference_dir=${data}/hg38_reference
 franken_reference_dir=${data}/franken_reference
 assemblies_dir=${data}/assemblies/assemblies
@@ -111,7 +113,7 @@ function align_assemblies_oscar {
     local bsub_command="module load minimap2 && \
       minimap2 -x asm5 -t 12 -c --secondary=no \
       ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-hap${hap}.fasta.gz\" \
-      > \"${paf_output}\""
+      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-hap${hap}.paf\""
 
     echo "Submitting ${job_name}..."
     bsub -J "${job_name}" \
@@ -127,6 +129,15 @@ function align_assemblies_oscar {
 
   done
 }
+
+function lift_over {
+	mkdir -p ${data}/lift_over
+	cat contig_counts.tsv | while read sample hap contigs
+  	do
+		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-hap${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
+	done
+}
+	
 
 function long_read_fofn {
   # builds: sample<TAB>remote_path
