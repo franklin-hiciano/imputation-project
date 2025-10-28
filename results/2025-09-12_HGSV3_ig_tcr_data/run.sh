@@ -96,6 +96,38 @@ function align_assemblies {
 
   done
 }
+
+
+function align_assemblies_oscar {
+
+
+  cat contig_counts.tsv | while read sample hap contigs
+  do
+	assembly_file=
+    local fname=$(basename "${assembly_file}")
+    local job_name="${fname%.fasta.gz}"
+    local paf_output="${paf_dir}/${job_name}.paf"
+
+    local bsub_command="module load minimap2 && \
+      minimap2 -x asm5 -t 12 -c --secondary=no \
+      ${hg38_reference_dir}/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-hap${hap}.fasta.gz\" \
+      > \"${paf_output}\""
+
+    echo "Submitting ${job_name}..."
+    bsub -J "${job_name}" \
+      -P "acc_oscarlr" \
+      -n "12" \
+      -R "span[hosts=1]" \
+      -R "rusage[mem=8000]" \
+      -q express \
+      -W 12:00 \
+      -o "${paf_dir}/${job_name}.out" \
+      -e "${paf_dir}/${job_name}.err" \
+      "${bsub_command}"
+
+  done
+}
+
 function long_read_fofn {
   # builds: sample<TAB>remote_path
   while read -r sample; do
