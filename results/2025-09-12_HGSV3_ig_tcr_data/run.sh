@@ -65,13 +65,12 @@ function align_assemblies_oscar {
 
   cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
   do
-	fname=$(basename ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz)
 	job_name=${sample}_${hap}
     	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
 
  	bsub_command="module load minimap2 && \
       minimap2 -x asm5 -t 16 -c --secondary=no \
-      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
+      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
       > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
 
     echo "Submitting ${job_name}..."
@@ -90,11 +89,13 @@ function align_assemblies_oscar {
 }
 
 function align_assemblies_local {
+
+	
 	module load minimap2
-	while read -r sample hap contigs
+	cat contig_counts.tsv | grep HG02018 | awk '$2 == "hap1"' | while read -r sample hap contigs
 do 
-	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
-done < contig_counts.tsv; 
+	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" # > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
+done 
 }
 	
 
@@ -105,7 +106,44 @@ function combine_assemblies_with_franken_reference {
     done < contig_counts.tsv
 }
 
+function index_new_franken_assemblies {
+	module load minimap2
+	while read sample hap contigs
+do
+        minimap2 -d ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.mmi ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta
+done < contig_counts.tsv
+}
 
+function align_long_reads_to_new_franken_assemblies {
+	cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
+  do
+        job_name=${sample}_${hap}_long
+
+	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
+
+
+
+	
+        bsub_command="module load minimap2 && \
+      minimap2 -x asm5 -t 16 -c --secondary=no \
+      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \" ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
+      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
+
+    echo "Submitting ${job_name}..."
+    bsub -J "${job_name}" \
+      -P "acc_oscarlr" \
+      -n "16" \
+      -R "span[hosts=1]" \
+      -R "rusage[mem=8000]" \
+      -q express \
+      -W 12:00 \
+      -o "${data}/paf_using_correct_hg38/${job_name}.out" \
+      -e "${data}/paf_using_correct_hg38/${job_name}.err" \
+      "${bsub_command}"
+
+  done
+	
+}
 
 function lift_over {
 	mkdir -p ${data}/lift_over
@@ -178,4 +216,5 @@ done <<< "${short_read_crams}"
 #get_long_reads_with_globus
 #combine_assemblies_with_franken_reference
 #download_hg38
-align_assemblies_local
+#align_assemblies_local
+#index_new_franken_assemblies
