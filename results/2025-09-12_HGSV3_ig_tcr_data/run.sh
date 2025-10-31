@@ -66,7 +66,7 @@ function align_assemblies_oscar {
   cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
   do
 	fname=$(basename ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz)
-	job_name="${sample_${hap}}"
+	job_name=${sample}_${hap}
     	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
 
  	bsub_command="module load minimap2 && \
