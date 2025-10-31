@@ -14,6 +14,10 @@ mkdir -p ${data}/franken_reference_dir
 
 mapfile -t assemblies < <(find "${data}/assemblies/assemblies" -maxdepth 2 -mindepth 2 -name '*.vrk-ps-sseq.asm-hap[12].fasta.gz')
 
+function get_samples {
+	wget https://raw.githubusercontent.com/nefte48/Imputation_data/refs/heads/main/results/2025_08_27_1kg_IG_snps/sample_names_shortR_longR.txt?token=GHSAT0AAAAAADMTK43JVGEXL2SHIJLY2KKA2ICKLYQ -O ${results}/sample_names_shortR_longR.txt
+}
+
 function count_contigs {
     assemblies_dir="${data}/assemblies/assemblies"
     individual_counts_file="contig_counts.tsv"
@@ -86,6 +90,15 @@ function align_assemblies_oscar {
   done
 }
 
+function combine_assemblies_with_franken_reference {
+    while read sample hap contigs
+    do
+        cat /sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/franken_reference/reference.fasta <(zcat ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz) > ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta
+    done < contig_counts.tsv
+}
+
+
+
 function lift_over {
 	mkdir -p ${data}/lift_over
 	cat contig_counts.tsv | while read sample hap contigs
@@ -95,12 +108,15 @@ function lift_over {
 }
 	
 
+
+
+
 function long_read_fofn {
   # builds: sample<TAB>remote_path
   while read -r sample; do
     awk -F'\t' -v s="$sample" '
       $6 == s { printf "%s\t%s\n", s, $1 }
-    ' "$long_reads_index"
+    ' "${results}/igsr_HGSVC3.tsv.tsv"
   done < sample_names_shortR_longR.txt > long_read_fofn.txt
 }
 
@@ -110,8 +126,13 @@ function make_globus_batch_file {
 	path_minerva=${data}/long_reads/$(basename -- "${path}")
 	path_mssm_arion_endpoint=${path_minerva#/sc/arion}
     	printf "%s\t%s\n" "${path_1000_genomes_endpoint}" "${path_mssm_arion_endpoint}"
-  done < long_read_fofn.txt > long_read_batch_transfer.txt
+  done < ${results}/long_read_fofn.txt > ${results}/long_read_batch_transfer.txt
 }
+
+function get_small_globus_batch_file {
+	head -n 10 ${results}/long_read_batch_transfer.txt > ${results}/long_read_batch_transfer_small.txt 
+}
+
 function get_long_reads_with_globus {
 	module load python
 	
@@ -121,7 +142,7 @@ function get_long_reads_with_globus {
 	EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2   # EMBL-EBI Public Data
     	MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
 
-  	globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  long_read_batch_transfer.txt
+  	globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  ${results}/long_read_batch_transfer_small.txt
 
 }
 function download_franken_reference {
@@ -137,12 +158,14 @@ do
 done <<< "${short_read_crams}"
 }
 
-
+#get_samples
 #count_contigs
 #sum_contigs_per_sample
 #download_hg38
 #index_hg38_with_minimap2
-#align_assemblies
+#align_assemblies_oscar
 #long_read_fofn
 #make_globus_batch_file
+#get_small_globus_batch_file
 #get_long_reads_with_globus
+combine_assemblies_with_franken_reference
