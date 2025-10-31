@@ -53,8 +53,7 @@ function sum_contigs_per_sample {
 }
 
 function download_hg38 {
-	url=https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
-        wget ${url} -O ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.fa
+        wget https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa -O /sc/arion/work/hiciaf01/databases/references/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
 }
 
 function index_hg38_with_minimap2 {
@@ -64,16 +63,16 @@ function index_hg38_with_minimap2 {
 function align_assemblies_oscar {
 
 
-  cat contig_counts.tsv | while read sample hap contigs
+  cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
   do
-	fname=$(basename ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-hap${hap}.fasta.gz)
-	job_name="${fname%.fasta.gz}"
+	fname=$(basename ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz)
+	job_name="${sample_${hap}}"
     	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
 
  	bsub_command="module load minimap2 && \
       minimap2 -x asm5 -t 16 -c --secondary=no \
-      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-hap${hap}.fasta.gz\" \
-      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-hap${hap}.paf\""
+      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
+      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
 
     echo "Submitting ${job_name}..."
     bsub -J "${job_name}" \
@@ -89,6 +88,15 @@ function align_assemblies_oscar {
 
   done
 }
+
+function align_assemblies_local {
+	module load minimap2
+	while read -r sample hap contigs
+do 
+	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
+done < contig_counts.tsv; 
+}
+	
 
 function combine_assemblies_with_franken_reference {
     while read sample hap contigs
@@ -168,4 +176,6 @@ done <<< "${short_read_crams}"
 #make_globus_batch_file
 #get_small_globus_batch_file
 #get_long_reads_with_globus
-combine_assemblies_with_franken_reference
+#combine_assemblies_with_franken_reference
+#download_hg38
+align_assemblies_local
