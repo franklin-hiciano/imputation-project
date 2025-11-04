@@ -4,6 +4,7 @@ set -euo pipefail
 
 data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long
 results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
+databases=/sc/arion/work/hiciaf01/databases/
 
 mkdir -p ${data}/long_reads
 mkdir -p ${data}/fastq1
@@ -56,21 +57,28 @@ function download_hg38 {
         wget https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa -O /sc/arion/work/hiciaf01/databases/references/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
 }
 
+function subset_hg38 {
+	module load samtools
+	samtools faidx ${databases}/references/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
+	samtools faidx ${databases}/references/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY chrM > ${databases}/references/GRCh38_reference_genome/hg38_subset.fa
+		
+}
+
 function index_hg38_with_minimap2 {
 	module load minimap2
-        minimap2 -d ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.fa
+        minimap2 -d ${databases}/references/GRCh38_reference_genome/hg38_subset.fa.mmi ${databases}/references/GRCh38_reference_genome/hg38_subset.fa
 }
 function align_assemblies_oscar {
 
 
-  cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
+  cat contig_counts.tsv | while read sample hap contigs
   do
 	job_name=${sample}_${hap}
     	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
 
  	bsub_command="module load minimap2 && \
       minimap2 -x asm5 -t 16 -c --secondary=no \
-      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \"${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
+      ${databases}/references/GRCh38_reference_genome/hg38_subset.fa.mmi \"${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
       > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
 
     echo "Submitting ${job_name}..."
@@ -118,8 +126,9 @@ function align_long_reads_to_new_franken_assemblies {
 	cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
   do
         job_name=${sample}_${hap}_long
-
-	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
+	
+	
+	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.mmi" "${data}/assemblies/assemblies/" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
 
 
 
@@ -146,16 +155,31 @@ function align_long_reads_to_new_franken_assemblies {
 }
 
 function lift_over {
+	module load minimap2
 	mkdir -p ${data}/lift_over
 	cat contig_counts.tsv | while read sample hap contigs
   	do
-		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-hap${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
+		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
 	done
 }
 	
+function ig_tcr_regions {
+	module load samtools/1.9	
+	while read sample hap contigs
+do
+	mkdir -p /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/
+	samtools faidx ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz -bed ${data}/lift_over/${sample}_${hap}.bed > /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa
+done < <(tail -n +2 contig_counts.tsv)
+}
 
-
-
+function ig_tcr_regions {
+    while read sample hap; do
+        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | \
+        sed 's/:/-/' | \
+        xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" \
+        > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
+    done < <(tail -n +2 contig_counts.tsv)
+}
 
 function long_read_fofn {
   # builds: sample<TAB>remote_path
@@ -164,6 +188,26 @@ function long_read_fofn {
       $6 == s { printf "%s\t%s\n", s, $1 }
     ' "${results}/igsr_HGSVC3.tsv.tsv"
   done < sample_names_shortR_longR.txt > long_read_fofn.txt
+}
+
+function cat_long_reads {
+    cat ${results}/sample_names_shortR_longR.txt | while read -r sample
+    do
+        job_name="${sample}_joined_long_reads"
+        bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | xargs cat > ${data}/long_reads/${job_name}.fasta.gz"
+        
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "1" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/long_reads/${job_name}.out" \
+            -e "${data}/long_reads/${job_name}.err" \
+            "${bsub_command}"
+    done
+    
 }
 
 function make_globus_batch_file {
@@ -175,9 +219,44 @@ function make_globus_batch_file {
   done < ${results}/long_read_fofn.txt > ${results}/long_read_batch_transfer.txt
 }
 
+function align_long_reads_to_new_franken_assemblies {
+        cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
+  do
+        job_name=${sample}_${hap}_long
+
+
+        ${results}/long_read_fofn.txt
+	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.mmi" "${data}/assemblies/assemblies/" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
+
+
+
+
+        bsub_command="module load minimap2 && \
+      minimap2 -x asm5 -t 16 -c --secondary=no \
+      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \" ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
+      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
+
+    echo "Submitting ${job_name}..."
+    bsub -J "${job_name}" \
+      -P "acc_oscarlr" \
+      -n "16" \
+      -R "span[hosts=1]" \
+      -R "rusage[mem=8000]" \
+      -q express \
+      -W 12:00 \
+      -o "${data}/paf_using_correct_hg38/${job_name}.out" \
+      -e "${data}/paf_using_correct_hg38/${job_name}.err" \
+      "${bsub_command}"
+
+  done
+  
+}
+
+
 function get_small_globus_batch_file {
 	head -n 10 ${results}/long_read_batch_transfer.txt > ${results}/long_read_batch_transfer_small.txt 
 }
+
 
 function get_long_reads_with_globus {
 	module load python
@@ -218,3 +297,7 @@ done <<< "${short_read_crams}"
 #download_hg38
 #align_assemblies_local
 #index_new_franken_assemblies
+#cat_long_reads
+lift_over
+#subset_hg38
+#ig_tcr_regions
