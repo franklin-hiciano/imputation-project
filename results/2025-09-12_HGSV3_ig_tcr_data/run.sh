@@ -113,7 +113,7 @@ function make_test_paf_file {
 
 function test_lift_over {
 	module load minimap2
-	paftools.js liftover -q 0 -l 1 -d 10 hg38_ig_and_tcr_coordinates.bed hg38_ig_and_tcr_coordinates.bed
+	paftools.js liftover -q 0 -l 1 -d 10 test.asm10.paf hg38_ig_and_tcr_coordinates.bed
 
 }
 
