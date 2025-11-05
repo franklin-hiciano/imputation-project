@@ -107,7 +107,14 @@ function align_assemblies_oscar {
 
 #DEBUGGING
 function make_test_paf_file {
+	module load minimap2
 	minimap2 -x asm10 -t 16 -c --secondary=yes   /sc/arion/work/hiciaf01/databases/references/GRCh38_reference_genome/hg38_subset.fa   "/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long//assemblies/assemblies/HG01457/HG01457.vrk-ps-sseq.asm-hap1.fasta.gz"   > test.asm10.paf
+}
+
+function test_lift_over {
+	module load minimap2
+	paftools.js liftover -q 0 -l 1 -d 10 hg38_ig_and_tcr_coordinates.bed hg38_ig_and_tcr_coordinates.bed
+
 }
 
 function lift_over {
@@ -295,4 +302,5 @@ done <<< "${short_read_crams}"
 #lift_over
 #subset_hg38
 #ig_tcr_regions
-count_contigs_within_regions
+#count_contigs_within_regions
+test_lift_over
