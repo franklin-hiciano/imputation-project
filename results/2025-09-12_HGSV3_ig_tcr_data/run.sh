@@ -37,6 +37,15 @@ function count_contigs {
     done >> "${individual_counts_file}"
 }
 
+function count_contigs_within_regions {
+while read sample hap contigs;
+do
+	awk -v OFS='\t' '{print $1, 0, $2}' ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz.fai > genome.fai.bed
+
+	bedtools intersect -a hg38_ig_and_tcr_coordinates.bed -b genome.fai.bed -c > ig_tcr_contig_counts_${sample}_${hap}.bed
+done < <(tail -n +2 contig_counts.tsv)
+}
+
 function sum_contigs_per_sample {
     infile="contig_counts.tsv"
     outfile="contig_counts_summed.tsv"
@@ -77,7 +86,7 @@ function align_assemblies_oscar {
     	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
 
  	bsub_command="module load minimap2 && \
-      minimap2 -x asm5 -t 16 -c --secondary=no \
+      minimap2 -x asm5 -t 16 -c \
       ${databases}/references/GRCh38_reference_genome/hg38_subset.fa.mmi \"${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
       > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
 
@@ -96,16 +105,29 @@ function align_assemblies_oscar {
   done
 }
 
-function align_assemblies_local {
-
-	
-	module load minimap2
-	cat contig_counts.tsv | grep HG02018 | awk '$2 == "hap1"' | while read -r sample hap contigs
-do 
-	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi" "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" # > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
-done 
+#DEBUGGING
+function make_test_paf_file {
+	minimap2 -x asm10 -t 16 -c --secondary=yes   /sc/arion/work/hiciaf01/databases/references/GRCh38_reference_genome/hg38_subset.fa   "/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long//assemblies/assemblies/HG01457/HG01457.vrk-ps-sseq.asm-hap1.fasta.gz"   > test.asm10.paf
 }
-	
+
+function lift_over {
+	module load minimap2
+	mkdir -p ${data}/lift_over
+	cat contig_counts.tsv | tail -n 1 |  while read sample hap contigs
+  	do
+		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
+		ls ${data}/lift_over/${sample}_${hap}.bed
+	done
+}
+function ig_tcr_regions {
+    while read sample hap; do
+        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | \
+        sed 's/:/-/' | \
+        xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" \
+        > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
+    done < <(tail -n +2 contig_counts.tsv)
+}
+
 
 function combine_assemblies_with_franken_reference {
     while read sample hap contigs
@@ -153,34 +175,6 @@ function align_long_reads_to_new_franken_assemblies {
   done
 	
 }
-
-function lift_over {
-	module load minimap2
-	mkdir -p ${data}/lift_over
-	cat contig_counts.tsv | while read sample hap contigs
-  	do
-		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
-	done
-}
-	
-function ig_tcr_regions {
-	module load samtools/1.9	
-	while read sample hap contigs
-do
-	mkdir -p /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/
-	samtools faidx ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz -bed ${data}/lift_over/${sample}_${hap}.bed > /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa
-done < <(tail -n +2 contig_counts.tsv)
-}
-
-function ig_tcr_regions {
-    while read sample hap; do
-        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | \
-        sed 's/:/-/' | \
-        xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" \
-        > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
-    done < <(tail -n +2 contig_counts.tsv)
-}
-
 function long_read_fofn {
   # builds: sample<TAB>remote_path
   while read -r sample; do
@@ -298,6 +292,7 @@ done <<< "${short_read_crams}"
 #align_assemblies_local
 #index_new_franken_assemblies
 #cat_long_reads
-lift_over
+#lift_over
 #subset_hg38
 #ig_tcr_regions
+count_contigs_within_regions
