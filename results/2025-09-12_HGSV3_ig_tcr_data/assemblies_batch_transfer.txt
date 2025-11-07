@@ -1,0 +1,3 @@
+/1000g/ftp/data_collections/HGSVC3/working/20230818_verkko_batch1/assemblies/ /scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/
+/1000g/ftp/data_collections/HGSVC3/working/20230927_verkko_batch2/assemblies/ /scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/
+/1000g/ftp/data_collections/HGSVC3/working/20240201_verkko_batch3/assemblies/ /scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/assemblies/

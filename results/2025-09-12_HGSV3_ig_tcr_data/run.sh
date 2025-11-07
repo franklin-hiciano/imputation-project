@@ -6,9 +6,10 @@ data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_lo
 results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
 databases=/sc/arion/work/hiciaf01/databases/
 
+mkdir -p ${data}/assemblies/
+mkdir -p ${data}/short_reads/
 mkdir -p ${data}/long_reads
-mkdir -p ${data}/fastq1
-mkdir -p ${data}/fastq2
+mkdir -p ${data}/fastq
 mkdir -p ${data}/hg38_reference
 mkdir -p ${data}/hg38_aligned_to_assemblies
 mkdir -p ${data}/franken_reference_dir
@@ -33,6 +34,21 @@ function get_IG_TCR_loci_on_hg38 {
 
 function get_samples {
 	wget https://raw.githubusercontent.com/nefte48/Imputation_data/refs/heads/main/results/2025_08_27_1kg_IG_snps/sample_names_shortR_longR.txt?token=GHSAT0AAAAAADMTK43JVGEXL2SHIJLY2KKA2ICKLYQ -O ${results}/sample_names_shortR_longR.txt
+}
+
+function make_globus_batch_file_for_assemblies {
+  for batch in 20230818_verkko_batch1 20230927_verkko_batch2 20240201_verkko_batch3; do
+	echo /1000g/ftp/data_collections/HGSVC3/working/${batch}/assemblies/ ${data#/sc/arion}/assemblies/
+  done < ${results}/sample_names_shortR_longR.txt > ${results}/assemblies_batch_transfer.txt
+}
+
+function get_assemblies_with_globus {
+        module load python
+        
+	EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2   # EMBL-EBI Public Data
+        MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
+
+        globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  ${results}/assemblies_batch_transfer.txt
 }
 
 function count_contigs {
@@ -125,18 +141,78 @@ function combine_assemblies_with_franken_reference {
         cat /sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/franken_reference/reference.fasta <(zcat ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz) > ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta
     done < contig_counts.tsv
 }
-
-
-
 #SHORT READS
+
+function get_short_reads_index_files {
+	for index in https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_698_related_high_coverage.sequence.index; do
+		wget ${index} -O ${results}/$(basename ${index})	
+	done
+}
+
+function short_read_fofn {
+	for index in 1000G_698_related_high_coverage.sequence.index 1000G_2504_high_coverage.sequence.index
+do
+	while read -r sample
+	do
+		awk -F'\t' -v s="${sample}" '{if ($10 == s) printf "%s\n", $1}' ${results}/${index}
+	done < sample_names_shortR_longR.txt
+done > short_read_fofn.txt
+}	
+
+function make_globus_batch_file_for_short_reads {
+while read -r path; do
+	echo ${path#ftp://ftp.sra.ebi.ac.uk} ${data#/sc/arion}/short_reads/$(basename ${path})
+done < ${results}/short_read_fofn.txt > ${results}/short_reads_batch_transfer.txt
+}
+
+function get_short_reads_with_globus {
+        module load python
+
+        EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2   # EMBL-EBI Public Data
+        MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
+
+        globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  ${results}/short_reads_batch_transfer.txt --verify-checksum --sync-level checksum
+}
+
 function convert_cram_to_fastq {
 	module load samtools
-	short_read_crams=$(ls ${data}/*.final.cram)
-	while read cram
-do
-	samtools fastq -1 ${data}/fastq1/$(basename ${cram}).fq -2 ${data}/fastq2/$(basename ${cram}).fq -0 /dev/null -s /dev/null -n ${cram}
-done <<< "${short_read_crams}"
+while read -r path_globus path_minerva; do
+	cram=/sc/arion${path_minerva}
+	job_name=$(basename ${cram})
+	bsub_command="module load samtools && samtools fastq --reference ${data}/hg38_reference/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "1" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/fastq/${job_name}.out" \
+            -e "${data}/fastq/${job_name}.err" \
+            "${bsub_command}"
+done < ${results}/short_reads_batch_transfer.txt
 }
+
+
+function concat_long_reads {
+    cat ${results}/sample_names_shortR_longR.txt | while read -r sample
+    do
+        job_name="${sample}_joined_long_reads"
+        bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | awk -F/ '{print \$NF}' | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "1" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/long_reads/${job_name}.out" \
+            -e "${data}/long_reads/${job_name}.err" \
+            "${bsub_command}"
+    done
+}
+
 
 #LONG READS
 function long_read_fofn {
@@ -209,4 +285,17 @@ do
 		"${bsub_command}"
 done < <(tail -n +2 contig_counts.tsv)
 }
+
+#download_hg38
+#subset_hg38
+#get_IG_TCR_loci_on_hg38
+#get_samples
+#make_globus_batch_file_for_assemblies
+#get_assemblies_with_globus
+#merge_assembly_dirs
+#get_short_reads_index_files
+#short_read_fofn
+#make_globus_batch_file_for_short_reads
+#get_short_reads_with_globus
+#convert_cram_to_fastq
 
