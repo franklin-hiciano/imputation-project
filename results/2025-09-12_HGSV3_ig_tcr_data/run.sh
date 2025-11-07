@@ -102,19 +102,6 @@ done< <(tail -n +2 contig_counts.tsv)
 }
 
 
-
-
-#DEBUGGING
-function make_test_paf_file {
-	module load minimap2
-	minimap2 -x asm10 -t 16 -c --secondary=yes   /sc/arion/work/hiciaf01/databases/references/GRCh38_reference_genome/hg38_subset.fa   "/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long//assemblies/assemblies/HG01457/HG01457.vrk-ps-sseq.asm-hap1.fasta.gz"   > test.asm10.paf
-}
-
-function test_lift_over {
-	module load minimap2
-	paftools.js liftover -q 0 -l 1 -d 10 test.asm10.paf hg38_ig_and_tcr_coordinates.bed
-}
-
 function lift_over {
 	module load minimap2
 	mkdir -p ${data}/lift_over
@@ -127,8 +114,8 @@ function lift_over {
 function ig_tcr_regions {
 	module load samtools
 while read sample hap count; do
-        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | sed 's/:/-/' | xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
-    done < <(tail -n +2 contig_counts.tsv)
+	samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" $(awk '{print $1":"$2+1"-"$3}' "${data}/lift_over/${sample}_${hap}.bed") > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
+done < <(tail -n +2 contig_counts.tsv)
 }
 
 
@@ -148,35 +135,22 @@ done < contig_counts.tsv
 }
 
 function align_long_reads_to_new_franken_assemblies {
-	cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
-  do
-        job_name=${sample}_${hap}_long
-	
-	
-	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.mmi" "${data}/assemblies/assemblies/" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
-
-
-
-	
-        bsub_command="module load minimap2 && \
-      minimap2 -x asm5 -t 16 -c --secondary=no \
-      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \" ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
-      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
-
-    echo "Submitting ${job_name}..."
-    bsub -J "${job_name}" \
-      -P "acc_oscarlr" \
-      -n "16" \
-      -R "span[hosts=1]" \
-      -R "rusage[mem=8000]" \
-      -q express \
-      -W 12:00 \
-      -o "${data}/paf_using_correct_hg38/${job_name}.out" \
-      -e "${data}/paf_using_correct_hg38/${job_name}.err" \
-      "${bsub_command}"
-
-  done
-	
+	while read sample hap contigs
+do
+        job_name=${sample}_long_aligned_to_${sample}_${hap}
+        bsub_command="minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined_long_reads.fasta.gz > ${data}/long_reads_paf/${job_name}.paf"
+	echo "Submitting ${job_name}..."
+	bsub -J "${job_name}" \
+		-P "acc_oscarlr" \
+		-n "16" \
+		-R "span[hosts=1]" \
+		-R "rusage[mem=8000]" \
+		-q express \
+		-W 12:00 \
+		-o "${data}/paf_using_correct_hg38/${job_name}.out" \
+		-e "${data}/paf_using_correct_hg38/${job_name}.err" \
+		"${bsub_command}"
+done < <(tail -n +2 contig_counts.tsv)
 }
 function long_read_fofn {
   # builds: sample<TAB>remote_path
@@ -191,8 +165,7 @@ function cat_long_reads {
     cat ${results}/sample_names_shortR_longR.txt | while read -r sample
     do
         job_name="${sample}_joined_long_reads"
-        bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | xargs cat > ${data}/long_reads/${job_name}.fasta.gz"
-        
+	bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | awk -F/ '{print \$NF}' | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
             -n "1" \
@@ -217,39 +190,23 @@ function make_globus_batch_file {
 }
 
 function align_long_reads_to_new_franken_assemblies {
-        cat contig_counts.tsv | grep NA19036 | awk '$2 == "hap1"' | while read sample hap contigs
-  do
-        job_name=${sample}_${hap}_long
-
-
-        ${results}/long_read_fofn.txt
-	minimap2 -x asm5 -t 16 -c --secondary=no "${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.mmi" "${data}/assemblies/assemblies/" > "${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf"
-
-
-
-
-        bsub_command="module load minimap2 && \
-      minimap2 -x asm5 -t 16 -c --secondary=no \
-      ${data}/hg38_reference/GRCh38_full_analysis_set_plus_decoy_hla.mmi \" ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
-      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
-
-    echo "Submitting ${job_name}..."
-    bsub -J "${job_name}" \
-      -P "acc_oscarlr" \
-      -n "16" \
-      -R "span[hosts=1]" \
-      -R "rusage[mem=8000]" \
-      -q express \
-      -W 12:00 \
-      -o "${data}/paf_using_correct_hg38/${job_name}.out" \
-      -e "${data}/paf_using_correct_hg38/${job_name}.err" \
-      "${bsub_command}"
-
-  done
-  
+	while read sample hap contigs
+do
+        job_name=${sample}_long_aligned_to_${sample}_${hap}
+        bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined_long_reads.fasta.gz > ${data}/long_reads_paf/${job_name}.paf"
+	echo "Submitting ${job_name}..."
+	bsub -J "${job_name}" \
+		-P "acc_oscarlr" \
+		-n "16" \
+		-R "span[hosts=1]" \
+		-R "rusage[mem=8000]" \
+		-q express \
+		-W 12:00 \
+		-o "${data}/paf_using_correct_hg38/${job_name}.out" \
+		-e "${data}/paf_using_correct_hg38/${job_name}.err" \
+		"${bsub_command}"
+done < <(tail -n +2 contig_counts.tsv)
 }
-
-
 function get_small_globus_batch_file {
 	head -n 10 ${results}/long_read_batch_transfer.txt > ${results}/long_read_batch_transfer_small.txt 
 }
@@ -298,6 +255,7 @@ done <<< "${short_read_crams}"
 #cat_long_reads
 #lift_over
 #subset_hg38
-ig_tcr_regions
+#ig_tcr_regions
 #count_contigs_within_regions
 #test_lift_over
+#align_long_reads_to_new_franken_assemblies
