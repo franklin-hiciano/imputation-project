@@ -72,23 +72,20 @@ function subset_hg38 {
 	samtools faidx ${databases}/references/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY chrM > ${databases}/references/GRCh38_reference_genome/hg38_subset.fa
 		
 }
-
-function index_hg38_with_minimap2 {
-	module load minimap2
-        minimap2 -d ${databases}/references/GRCh38_reference_genome/hg38_subset.fa.mmi ${databases}/references/GRCh38_reference_genome/hg38_subset.fa
+function index_assemblies {
+        module load minimap2
+        while IFS=$'\t' read sample hap contigs
+do
+	minimap2 -d ${data}/assemblies/assemblies/${sample}/${sample}_${hap}.mmi ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz
+done < <(tail -n +2 contig_counts.tsv)
 }
-function align_assemblies_oscar {
-
-
-  cat contig_counts.tsv | while read sample hap contigs
-  do
+function align_assemblies_oscar { 
+        
+        while IFS=$'\t' read sample hap contigs
+do
 	job_name=${sample}_${hap}
-    	paf_output="${data}/paf_using_correct_hg38/${job_name}.paf"
-
- 	bsub_command="module load minimap2 && \
-      minimap2 -x asm5 -t 16 -c \
-      ${databases}/references/GRCh38_reference_genome/hg38_subset.fa.mmi \"${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz\" \
-      > \"${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf\""
+        
+        bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz ${databases}/references/GRCh38_reference_genome/hg38_subset.fa > ${data}/hg38_aligned_to_assemblies/${sample}_${hap}.paf"
 
     echo "Submitting ${job_name}..."
     bsub -J "${job_name}" \
@@ -98,12 +95,14 @@ function align_assemblies_oscar {
       -R "rusage[mem=8000]" \
       -q express \
       -W 12:00 \
-      -o "${data}/paf_using_correct_hg38/${job_name}.out" \
-      -e "${data}/paf_using_correct_hg38/${job_name}.err" \
+      -o "${data}/hg38_aligned_to_assemblies/${job_name}.out" \
+      -e "${data}/hg38_aligned_to_assemblies/${job_name}.err" \
       "${bsub_command}"
-
-  done
+done< <(tail -n +2 contig_counts.tsv)
 }
+
+
+
 
 #DEBUGGING
 function make_test_paf_file {
@@ -114,24 +113,21 @@ function make_test_paf_file {
 function test_lift_over {
 	module load minimap2
 	paftools.js liftover -q 0 -l 1 -d 10 test.asm10.paf hg38_ig_and_tcr_coordinates.bed
-
 }
 
 function lift_over {
 	module load minimap2
 	mkdir -p ${data}/lift_over
-	cat contig_counts.tsv | tail -n 1 |  while read sample hap contigs
+	while read sample hap contigs
   	do
-		paftools.js liftover ${data}/paf_using_correct_hg38/${sample}.vrk-ps-sseq.asm-${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
+		paftools.js liftover ${data}/hg38_aligned_to_assemblies/${sample}_${hap}.paf hg38_ig_and_tcr_coordinates.bed > ${data}/lift_over/${sample}_${hap}.bed
 		ls ${data}/lift_over/${sample}_${hap}.bed
-	done
+	done < <(tail -n +2 contig_counts.tsv)
 }
 function ig_tcr_regions {
-    while read sample hap; do
-        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | \
-        sed 's/:/-/' | \
-        xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" \
-        > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
+	module load samtools
+while read sample hap count; do
+        awk -v OFS=":" '{print $1, $2 + 1, $3}' "${data}/lift_over/${sample}_${hap}.bed" | sed 's/:/-/' | xargs samtools faidx "${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz" > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}.fa"
     done < <(tail -n +2 contig_counts.tsv)
 }
 
@@ -289,6 +285,7 @@ done <<< "${short_read_crams}"
 #sum_contigs_per_sample
 #download_hg38
 #index_hg38_with_minimap2
+#index_assemblies
 #align_assemblies_oscar
 #long_read_fofn
 #make_globus_batch_file
@@ -301,6 +298,6 @@ done <<< "${short_read_crams}"
 #cat_long_reads
 #lift_over
 #subset_hg38
-#ig_tcr_regions
+ig_tcr_regions
 #count_contigs_within_regions
-test_lift_over
+#test_lift_over
