@@ -219,6 +219,31 @@ while read -r sample hap counts; do
 done < <(tail -n +2 contig_counts.tsv)
 }
 
+function index_franken_reference_with_bwa {
+	module load bwa
+	bwa index ${data}/franken_reference/reference.fasta
+}
+
+function align_short_reads {
+	   module load samtools
+while read -r sample hap counts; do
+        cram=${data}/short_reads/${sample}.final.cram
+        job_name=$(basename ${cram})
+        bsub_command="module load bwa && bwa mem -t 16 ${databases}/references/GRCh38_reference_genome/hg38_subset.fa ${data}/fastq/$(basename ${cram})_R1.fastq.gz $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "16" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/fastq/${job_name}.out" \
+            -e "${data}/fastq/${job_name}.err" \
+            "${bsub_command}"
+done < <(tail -n +2 contig_counts.tsv)
+}	
+
 
 function concat_long_reads {
     cat ${results}/sample_names_shortR_longR.txt | while read -r sample
@@ -326,4 +351,6 @@ done < <(tail -n +2 contig_counts.tsv)
 
 #make_region_names_file
 #count_contigs_within_regions
-count_bases_within_regions
+#count_bases_within_regions
+#index_franken_reference_with_bwa
+
