@@ -143,6 +143,19 @@ done < <(tail -n +2 contig_counts.tsv) >> contig_counts_by_region.tsv
 
 }
 
+function count_bases_within_regions {
+	echo -e "sample\thap\t$(cut -f4 hg38_ig_and_tcr_coordinates.bed | paste -s -d '\t')" > num_bases_by_region.tsv
+	while read sample hap contigs
+do
+	while read region
+        do
+		echo $(awk -v s="${region}" 'index($4, s) > 0 {sum += ($3-$2)} END {print sum}' ${data}/lift_over/${sample}_${hap}.bed)
+        done < region_names.txt > num_bases_${sample}_${hap}.txt
+
+	printf "%s\t%s\t%s\n" "${sample}" "${hap}" "$(paste -s num_bases_${sample}_${hap}.txt)"
+done < <(tail -n +2 contig_counts.tsv) >> num_bases_by_region.tsv
+}
+
 function download_franken_reference {
 	wget http://immunogenomics.louisville.edu/immune_receptor_genomics/current/reference.fasta -O ${data}/franken_reference_dir/reference.fasta
 }
@@ -312,4 +325,5 @@ done < <(tail -n +2 contig_counts.tsv)
 #convert_cram_to_fastq
 
 #make_region_names_file
-count_contigs_within_regions
+#count_contigs_within_regions
+count_bases_within_regions
