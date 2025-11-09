@@ -122,13 +122,25 @@ while read sample hap count; do
 done < <(tail -n +2 contig_counts.tsv)
 }
 
-function count_contigs_within_regions {
-while read sample hap contigs;
-do
-	awk -v OFS='\t' '{print $1, 0, $2}' ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz.fai > genome.fai.bed
+function make_region_names_file {
+	awk '{printf "%s_%s_%s\n", $1,$2,$3}' hg38_ig_and_tcr_coordinates.bed > region_names.txt
+}
 
-	bedtools intersect -a hg38_ig_and_tcr_coordinates.bed -b genome.fai.bed -c > ig_tcr_contig_counts_${sample}_${hap}.bed
-done < <(tail -n +2 contig_counts.tsv)
+function count_contigs_within_regions {
+
+    echo -e "sample\thap\t$(cut -f4 hg38_ig_and_tcr_coordinates.bed | paste -s -d '\t')" > contig_counts_by_region.tsv
+
+    while read sample hap contigs
+
+do
+        while read region
+	do
+		echo $(grep ${region} ${data}/lift_over/${sample}_${hap}.bed | wc -l)
+	done < region_names.txt > region_counts_${sample}_${hap}.txt
+
+	printf "%s\t%s\t%s\n" "${sample}" "${hap}" "$(paste -s region_counts_${sample}_${hap}.txt)"
+done < <(tail -n +2 contig_counts.tsv) >> contig_counts_by_region.tsv
+
 }
 
 function download_franken_reference {
@@ -299,3 +311,5 @@ done < <(tail -n +2 contig_counts.tsv)
 #get_short_reads_with_globus
 #convert_cram_to_fastq
 
+#make_region_names_file
+count_contigs_within_regions
