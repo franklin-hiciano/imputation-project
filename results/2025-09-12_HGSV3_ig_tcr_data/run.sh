@@ -6,6 +6,7 @@ data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_lo
 results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
 databases=/sc/arion/work/hiciaf01/databases/
 
+mkdir -p ${data}/aligned_short_reads/
 mkdir -p ${data}/assemblies/
 mkdir -p ${data}/short_reads/
 mkdir -p ${data}/long_reads
@@ -204,7 +205,7 @@ function convert_cram_to_fastq {
 while read -r sample hap counts; do
 	cram=${data}/short_reads/${sample}.final.cram
 	job_name=$(basename ${cram})
-	bsub_command="module load samtools && samtools fastq --reference {databases}/references/GRCh38_reference_genome/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+	bsub_command="module load samtools && samtools fastq --reference ${databases}/references/GRCh38_reference_genome/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 ${data}/fastq/(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
 
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
@@ -219,17 +220,31 @@ while read -r sample hap counts; do
 done < <(tail -n +2 contig_counts.tsv)
 }
 
-function index_franken_reference_with_bwa {
-	module load bwa
-	bwa index ${data}/franken_reference/reference.fasta
+function index_combined_assemblies {
+while read -r sample hap counts; do
+        job_name=${sample}_${hap}_frnk
+        bsub_command="module load bwa && bwa index ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta"
+
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "16" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/aligned_short_reads/${job_name}.out" \
+            -e "${data}/aligned_short_reads/${job_name}.err" \
+            "${bsub_command}"
+    done < <(tail -n +2 contig_counts.tsv)
 }
+
 
 function align_short_reads {
 	   module load samtools
 while read -r sample hap counts; do
         cram=${data}/short_reads/${sample}.final.cram
         job_name=$(basename ${cram})
-        bsub_command="module load bwa && bwa mem -t 16 ${databases}/references/GRCh38_reference_genome/hg38_subset.fa ${data}/fastq/$(basename ${cram})_R1.fastq.gz $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+        bsub_command="module load bwa && bwa mem -t 16 ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/fastq/$(basename ${cram})_R1.fastq.gz $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
 
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
@@ -352,5 +367,4 @@ done < <(tail -n +2 contig_counts.tsv)
 #make_region_names_file
 #count_contigs_within_regions
 #count_bases_within_regions
-#index_franken_reference_with_bwa
-
+index_combined_assemblies
