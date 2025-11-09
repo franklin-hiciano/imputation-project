@@ -201,14 +201,14 @@ function get_short_reads_with_globus {
 
 function convert_cram_to_fastq {
 	module load samtools
-while read -r path_globus path_minerva; do
-	cram=/sc/arion${path_minerva}
+while read -r sample hap counts; do
+	cram=${data}/short_reads/${sample}.final.cram
 	job_name=$(basename ${cram})
-	bsub_command="module load samtools && samtools fastq --reference ${data}/hg38_reference/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+	bsub_command="module load samtools && samtools fastq --reference {databases}/references/GRCh38_reference_genome/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
 
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
-            -n "1" \
+            -n "16" \
             -R "span[hosts=1]" \
             -R "rusage[mem=8000]" \
             -q express \
@@ -216,7 +216,7 @@ while read -r path_globus path_minerva; do
             -o "${data}/fastq/${job_name}.out" \
             -e "${data}/fastq/${job_name}.err" \
             "${bsub_command}"
-done < ${results}/short_reads_batch_transfer.txt
+done < <(tail -n +2 contig_counts.tsv)
 }
 
 
