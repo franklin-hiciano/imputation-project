@@ -6,6 +6,7 @@ data=/sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_lo
 results=/sc/arion/work/hiciaf01/projects/imputation/results/2025-09-12_HGSV3_ig_tcr_data
 databases=/sc/arion/work/hiciaf01/databases/
 
+mkdir -p ${data}/aligned_short_reads_aligned/
 mkdir -p ${data}/aligned_short_reads/
 mkdir -p ${data}/assemblies/
 mkdir -p ${data}/short_reads/
@@ -205,7 +206,7 @@ function convert_cram_to_fastq {
 while read -r sample hap counts; do
 	cram=${data}/short_reads/${sample}.final.cram
 	job_name=$(basename ${cram})
-	bsub_command="module load samtools && samtools fastq --reference ${databases}/references/GRCh38_reference_genome/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 ${data}/fastq/(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+	bsub_command="module load samtools && samtools fastq --reference ${databases}/references/GRCh38_reference_genome/hg38_subset.fa -1 ${data}/fastq/$(basename ${cram})_R1.fastq.gz -2 ${data}/fastq/$(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
 
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
@@ -241,43 +242,32 @@ while read -r sample hap counts; do
 
 function align_short_reads {
 	   module load samtools
-while read -r sample hap counts; do
-        cram=${data}/short_reads/${sample}.final.cram
-        job_name=$(basename ${cram})
-        bsub_command="module load bwa && bwa mem -t 16 ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/fastq/$(basename ${cram})_R1.fastq.gz $(basename ${cram})_R2.fastq.gz -0 /dev/null -s /dev/null -n ${cram}"
+while read -r sample hap counts
+do
+	for hap in hap1 hap2
+	do
+		cram=${data}/short_reads/${sample}.final.cram
+	        job_name=${sample}_${hap}_SR_aligned
+        	bsub_command="module load bwa && bwa mem -t 16 ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/fastq/$(basename ${cram})_R1.fastq ${data}/fastq/$(basename ${cram})_R2.fastq > ${data}/short_reads_aligned/${job_name}.sam"
+	
 
-        bsub -J "${job_name}" \
+	        bsub -J "${job_name}" \
             -P "acc_oscarlr" \
             -n "16" \
             -R "span[hosts=1]" \
             -R "rusage[mem=8000]" \
             -q express \
             -W 12:00 \
-            -o "${data}/fastq/${job_name}.out" \
-            -e "${data}/fastq/${job_name}.err" \
+            -o "${data}/short_reads_aligned_sam/${job_name}.out" \
+            -e "${data}/short_reads_aligned_sam/${job_name}.err" \
             "${bsub_command}"
+	done
 done < <(tail -n +2 contig_counts.tsv)
 }	
 
-
-function concat_long_reads {
-    cat ${results}/sample_names_shortR_longR.txt | while read -r sample
-    do
-        job_name="${sample}_joined_long_reads"
-        bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | awk -F/ '{print \$NF}' | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
-        bsub -J "${job_name}" \
-            -P "acc_oscarlr" \
-            -n "1" \
-            -R "span[hosts=1]" \
-            -R "rusage[mem=8000]" \
-            -q express \
-            -W 12:00 \
-            -o "${data}/long_reads/${job_name}.out" \
-            -e "${data}/long_reads/${job_name}.err" \
-            "${bsub_command}"
-    done
+function subset_short_reads {
+	samtools fastq ${data}/short_reads_aligned/.sam	
 }
-
 
 #LONG READS
 function long_read_fofn {
@@ -302,23 +292,80 @@ function get_small_globus_batch_file {
 	head -n 10 ${results}/long_read_batch_transfer.txt > ${results}/long_read_batch_transfer_small.txt 
 }
 
-function get_long_reads_with_globus {
-	module load python
-	
-	local SRC="14a0be5f-226c-49fe-b65f-dba083d67fc3"   # source collection UUID
-	local DST="6621ca70-103f-4670-a5a7-a7d74d7efbb7"   # Minerva/Arion collection UUID
-	
-	EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2   # EMBL-EBI Public Data
-    	MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
+function make_globus_transfer_file_for_long_reads() {
+    local sample="$1"
 
-  	globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch  ${results}/long_read_batch_transfer_small.txt
+    while IFS=$'\t' read -r path; do
+        path_1000_genomes_endpoint="${path#*ftp.sra.ebi.ac.uk}"
+        path_minerva="${data}/long_reads/$(basename -- "$path")"
+        path_mssm_arion_endpoint="${path_minerva#/sc/arion}"
+        printf '%s\t%s\n' "$path_1000_genomes_endpoint" "$path_mssm_arion_endpoint"
+    done < <(awk -v s="$sample" '$1==s {print $2}' "$results/long_read_fofn.txt") > "${results}/${sample}_long_read_transfer.txt"
 }
 
-function concat_long_reads {
-    cat ${results}/sample_names_shortR_longR.txt | while read -r sample
-    do
-        job_name="${sample}_joined_long_reads"
-	bsub_command="awk -v s='${sample}' '\$1 == s {print \$2}' long_read_fofn.txt | awk -F/ '{print \$NF}' | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
+
+
+function get_sample_long_reads_with_globus() {
+	module load python
+	sample=$1
+        while IFS=$'\t' read -r sample path
+do
+        path_1000_genomes_endpoint=${path#ftp.sra.ebi.ac.uk}
+        path_minerva=${data}/long_reads/$(basename -- "${path}")
+        path_mssm_arion_endpoint=${path_minerva#/sc/arion}
+        printf "%s\t%s\n" "${path_1000_genomes_endpoint}" "${path_mssm_arion_endpoint}"
+done < <(awk -v s=${sample} '$1 == s {print "$1"\t"$2"}' ${results}/long_read_fofn.txt) > ${results}/${sample}_${hap}_long_read_transfer.txt
+		
+	EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2
+	MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
+
+  	globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC TSV transfer 0001" --batch ${results}/${sample}_${hap}_long_read_transfer.txt
+}
+
+get_sample_long_reads_with_globus() {
+  module load python 
+  local sample="$1"
+  local out="${results}/${sample}_long_read_transfer.txt"
+
+  awk -v s="$sample" '$1==s {print $1 "\t" $2}' "$results/long_read_fofn.txt" > ${sample}_long_read_fofn.txt
+  while IFS=$'\t' read -r _ path; do
+    printf '%s\t%s\n' \
+      "${path#*ftp.sra.ebi.ac.uk}" \
+      "${data#/sc/arion}/long_reads/$(basename -- "$path")"
+  done < ${sample}_long_read_fofn.txt > "${results}/${sample}_long_read_transfer.txt"
+
+  EMBL_EBI_ENDPOINT=47772002-3e5b-4fd3-b97c-18cee38d6df2
+  MINERVA_ARION_ENDPOINT=6621ca70-103f-4670-a5a7-a7d74d7efbb7
+  globus transfer ${EMBL_EBI_ENDPOINT} ${MINERVA_ARION_ENDPOINT} --label "HGSVC long reads: ${sample}" --batch "${results}/${sample}_long_read_transfer.txt"
+}
+
+
+function concat_long_reads() {
+  while read -r sample; do
+    job_name="${sample}_joined_long_reads"
+    xfer_file="${results}/${sample}_long_read_transfer.txt"
+
+    # if the transfer list doesn't exist yet, build it first
+    [[ -s "$xfer_file" ]] || get_sample_long_reads_with_globus "$sample"
+
+    bsub -J "$job_name" \
+      -P "acc_oscarlr" \
+      -n "1" \
+      -R "span[hosts=1]" \
+      -R "rusage[mem=8000]" \
+      -q express \
+      -W 12:00 \
+      -o "${data}/long_reads/${job_name}.out" \
+      -e "${data}/long_reads/${job_name}.err" \
+      bash -lc "cut -f2 '$xfer_file' | xargs -r -I{} cat '{}' > '${data}/long_reads/${job_name}.fasta.gz'"
+  done < "${results}/sample_names_shortR_longR.txt"
+}
+
+
+function concat_long_reads() {
+	sample=$1
+	job_name="${sample}_joined_long_reads"
+        bsub_command="cat ${sample}_long_read_transfer.txt | cut -f2 | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
         bsub -J "${job_name}" \
             -P "acc_oscarlr" \
             -n "1" \
@@ -329,27 +376,32 @@ function concat_long_reads {
             -o "${data}/long_reads/${job_name}.out" \
             -e "${data}/long_reads/${job_name}.err" \
             "${bsub_command}"
-    done
+
 }
 
-function align_long_reads_to_new_franken_assemblies {
-	while read sample hap contigs
+function align_long_read_to_combined_assembly() {
+	sample=$1
+	for hap in hap1 hap2
 do
-        job_name=${sample}_long_aligned_to_${sample}_${hap}
-        bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined_long_reads.fasta.gz > ${data}/long_reads_paf/${job_name}.paf"
-	echo "Submitting ${job_name}..."
+	job_name=${sample}_${hap}
+	bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined_long_reads.fasta.gz > ${data}/long_reads_paf/${job_name}.paf"
 	bsub -J "${job_name}" \
-		-P "acc_oscarlr" \
-		-n "16" \
-		-R "span[hosts=1]" \
-		-R "rusage[mem=8000]" \
-		-q express \
-		-W 12:00 \
-		-o "${data}/paf_using_correct_hg38/${job_name}.out" \
-		-e "${data}/paf_using_correct_hg38/${job_name}.err" \
-		"${bsub_command}"
-done < <(tail -n +2 contig_counts.tsv)
+                -P "acc_oscarlr" \
+                -n "16" \
+                -R "span[hosts=1]" \
+                -R "rusage[mem=8000]" \
+                -q express \
+                -W 12:00 \
+                -o "${data}/paf_using_correct_hg38/${job_name}.out" \
+                -e "${data}/paf_using_correct_hg38/${job_name}.err" \
+                "${bsub_command}"
+done
 }
+
+function subset_long_reads {
+	samtools fastq	
+}
+
 
 #download_hg38
 #subset_hg38
@@ -367,4 +419,13 @@ done < <(tail -n +2 contig_counts.tsv)
 #make_region_names_file
 #count_contigs_within_regions
 #count_bases_within_regions
-index_combined_assemblies
+#index_combined_assemblies
+align_short_reads
+
+#make_globus_transfer_file_for_long_reads HG00171
+#get_sample_long_reads_with_globus HG00171
+
+
+
+
+#align_long_read_to_combined_assembly HG00096
