@@ -16,6 +16,7 @@ mkdir -p ${data}/hg38_reference
 mkdir -p ${data}/hg38_aligned_to_assemblies
 mkdir -p ${data}/franken_reference_dir
 mkdir -p ${data}/long_reads_paf
+mkdir -p ${data}/bed_files/
 
 #HUMAN REFERENCE GENOME (HGR)
 function download_hg38 {
@@ -168,6 +169,19 @@ function combine_assemblies_with_franken_reference {
         cat /sc/arion/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/franken_reference/reference.fasta <(zcat ${data}/assemblies/assemblies/${sample}/${sample}.vrk-ps-sseq.asm-${hap}.fasta.gz) > ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta
     done < contig_counts.tsv
 }
+
+function download_franken_bed_file {
+	wget https://raw.githubusercontent.com/Watson-IG/immune_receptor_genomics/refs/heads/main/240520/IG_loci.bed -O ${data}/bed_files/franken.bed
+}
+
+function combine_assembly_and_franken_bed_files {
+	while read sample hap contigs
+do
+	cat ${data}/lift_over/${sample}_${hap}.bed ${data}/bed_files/franken.bed > ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed
+done < <(tail -n +2 contig_counts.tsv)
+}
+
+
 #SHORT READS
 
 function get_short_reads_index_files {
@@ -265,9 +279,38 @@ do
 done < <(tail -n +2 contig_counts.tsv)
 }	
 
+function convert_short_reads_to_bam {
+	module load samtools
+	while read -r sample hap count
+do
+	job_name=${sample}_${hap}_SR_aligned_sorted_indexed
+	bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "16" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/short_reads_aligned/${job_name}.out" \
+            -e "${data}/short_reads_aligned/${job_name}.err" \
+            "module load samtools && samtools view -b -S ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.sam > ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam && samtools sort ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam -o ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned_sorted.bam && samtools index ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned_sorted.bam ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned_sorted_indexed.bam"
+done < <(tail -n +2 contig_counts.tsv)
+}
 function subset_short_reads {
-	mkdir -p ${data}/subset_short_reads
-	samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file <dir>/${sample}_${hap}.bed | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_singletons.fq
+	while read -r sample hap count
+do
+      	job_name=${sample}_${hap}_shortread_IG_TCR
+        bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "16" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/short_reads_aligned/${job_name}.out" \
+            -e "${data}/short_reads_aligned/${job_name}.err" \
+	    "samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_singletons.fq"
+done < <(tail -n +2 contig_counts.tsv)
 }
 
 #LONG READS
@@ -421,7 +464,7 @@ function subset_long_reads {
 #count_contigs_within_regions
 #count_bases_within_regions
 #index_combined_assemblies
-align_short_reads
+#align_short_reads
 
 #make_globus_transfer_file_for_long_reads HG00171
 #get_sample_long_reads_with_globus HG00171
@@ -430,3 +473,6 @@ align_short_reads
 
 
 #align_long_read_to_combined_assembly HG00096
+#download_franken_bed_file
+#combine_assembly_and_franken_bed_files
+convert_short_reads_to_bam
