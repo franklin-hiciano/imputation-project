@@ -266,7 +266,8 @@ done < <(tail -n +2 contig_counts.tsv)
 }	
 
 function subset_short_reads {
-	samtools fastq ${data}/short_reads_aligned/.sam	
+	mkdir -p ${data}/subset_short_reads
+	samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_singletons.fq
 }
 
 #LONG READS
