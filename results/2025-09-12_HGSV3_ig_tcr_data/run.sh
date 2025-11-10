@@ -17,6 +17,8 @@ mkdir -p ${data}/hg38_aligned_to_assemblies
 mkdir -p ${data}/franken_reference_dir
 mkdir -p ${data}/long_reads_paf
 mkdir -p ${data}/bed_files/
+mkdir -p ${data}/subset_short_reads/
+
 
 #HUMAN REFERENCE GENOME (HGR)
 function download_hg38 {
@@ -309,9 +311,115 @@ do
             -W 12:00 \
             -o "${data}/short_reads_aligned/${job_name}.out" \
             -e "${data}/short_reads_aligned/${job_name}.err" \
-	    "samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_singletons.fq"
+	    "module load samtools && samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_singletons.fq"
 done < <(tail -n +2 contig_counts.tsv)
 }
+
+function combine_short_read_fastq_files {
+	while read -r sample hap count
+do
+	for fq in 1 2 singletons
+	do
+		cat ${data}/subset_short_reads/${sample}_hap1_${fq}.fq ${data}/subset_short_reads/${sample}_hap2_${fq}.fq > /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${fq}.fq
+	done
+done < <(tail -n +2 contig_counts.tsv)
+}
+
+function count_paired_end_reads {
+	module load samtools
+	printf "sample\tR1\tR2\tsingletons\n" > paired_end_reads_counts.tsv
+	while read -r sample
+do
+	zeros=("NA21487" "NA24385")  # samples you want to set to 0
+	
+	if [[ " ${zeros[@]} " =~ " ${sample} " ]]; then
+		printf "%s\t0\t0\t0\n" "$sample" >> paired_end_reads_counts.tsv
+		continue
+	fi
+	
+	for fq in 1 2 singletons
+	do
+		samtools faidx /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${fq}.fq 
+	done
+	
+	printf "%s\t%s\t%s\t%s\n" ${sample} $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_1.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_2.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_singletons.fq.fai)
+done < <(tail -n +2 contig_counts.tsv | cut -f1 | uniq) >> paired_end_reads_counts.tsv
+}
+
+#SHORT READS SPLIT BY REGION
+function make_bed_files_by_region {
+	paste region_names.txt <(printf "igk\ntrg\ntrb\ntra/d\nigh\nigl\n") > region_names_with_alt.txt
+while read -r sample hap count
+do
+	while read -r region region_alt
+        do
+		awk -v s="${region}" -v t="${region_alt}" '{if (index($4, s) > 0 || index($4, t) > 0) print $0}' ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed > ${data}/bed_files/${sample}_${hap}_${region_alt:0:3}_assembly_and_franken.bed
+        done < region_names_with_alt.txt 
+done < <(tail -n +2 contig_counts.tsv)
+}
+
+function subset_short_reads_by_region {
+        while read -r sample hap count
+do
+        while read -r region region_alt
+	do
+			
+	
+		job_name=${sample}_${hap}_${region_alt:0:3}_shortread
+        	bsub -J "${job_name}" \
+            -P "acc_oscarlr" \
+            -n "16" \
+            -R "span[hosts=1]" \
+            -R "rusage[mem=8000]" \
+            -q express \
+            -W 12:00 \
+            -o "${data}/short_reads_aligned/${job_name}.out" \
+            -e "${data}/short_reads_aligned/${job_name}.err" \
+            "module load samtools && samtools view -Sbh -F 3844 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file ${data}/bed_files/${sample}_${hap}_${region_alt:0:3}_assembly_and_franken.bed | samtools fastq -1 ${data}/subset_short_reads/${sample}_${hap}_${region_alt:0:3}_1.fq -2 ${data}/subset_short_reads/${sample}_${hap}_${region_alt:0:3}_2.fq -s ${data}/subset_short_reads/${sample}_${hap}_${region_alt:0:3}_singletons.fq"
+    	done < region_names_with_alt.txt
+done < <(tail -n +2 contig_counts.tsv)
+}
+
+function combine_short_reads_fastq_files_by_region {
+        while read -r sample hap count
+do
+        while read -r region region_alt
+	do
+		for fq in 1 2 singletons
+		do
+
+			cat ${data}/subset_short_reads/${sample}_hap1_${region_alt:0:3}_${fq}.fq ${data}/subset_short_reads/${sample}_hap2_${region_alt:0:3}_${fq}.fq > /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_${fq}.fq
+		done
+	done < region_names_with_alt.txt
+done < <(tail -n +2 contig_counts.tsv)
+}
+
+function count_paired_end_reads {
+        module load samtools
+        printf "sample\tR1\tR2\tsingletons\n" > paired_end_reads_counts.tsv
+        while read -r sample
+do
+        while read -r region region_alt
+        do
+
+		zeros=("NA21487" "NA24385")  # samples you want to set to 0
+
+        	if [[ " ${zeros[@]} " =~ " ${sample} " ]]; then
+                	printf "%s\t0\t0\t0\n" "$sample" >> paired_end_reads_counts.tsv
+                	continue
+        	fi
+
+        	for fq in 1 2 singletons
+        	do
+                	samtools faidx /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${fq}.fq
+        	done
+
+	        printf "%s\t%s\t%s\t%s\n" ${sample} $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_1.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_2.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_singletons.fq.fai)
+        done < region_names_with_alt.txt
+
+done < <(tail -n +2 contig_counts.tsv | cut -f1 | uniq) >> paired_end_reads_counts.tsv
+}
+
 
 #LONG READS
 function long_read_fofn {
@@ -475,4 +583,10 @@ function subset_long_reads {
 #align_long_read_to_combined_assembly HG00096
 #download_franken_bed_file
 #combine_assembly_and_franken_bed_files
-convert_short_reads_to_bam
+#convert_short_reads_to_bam
+#subset_short_reads
+#combine_short_read_fastq_files
+#count_paired_end_reads
+#make_bed_files_by_region
+#subset_short_reads_by_region
+combine_short_reads_fastq_files_by_region
