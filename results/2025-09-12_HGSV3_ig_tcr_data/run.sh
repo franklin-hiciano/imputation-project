@@ -258,8 +258,8 @@ do
             -R "rusage[mem=8000]" \
             -q express \
             -W 12:00 \
-            -o "${data}/short_reads_aligned_sam/${job_name}.out" \
-            -e "${data}/short_reads_aligned_sam/${job_name}.err" \
+            -o "${data}/short_reads_aligned/${job_name}.out" \
+            -e "${data}/short_reads_aligned/${job_name}.err" \
             "${bsub_command}"
 	done
 done < <(tail -n +2 contig_counts.tsv)
@@ -392,14 +392,14 @@ do
                 -R "rusage[mem=8000]" \
                 -q express \
                 -W 12:00 \
-                -o "${data}/paf_using_correct_hg38/${job_name}.out" \
-                -e "${data}/paf_using_correct_hg38/${job_name}.err" \
+                -o "${data}/long_reads_paf/${job_name}.out" \
+                -e "${data}/long_reads_paf/${job_name}.err" \
                 "${bsub_command}"
 done
 }
 
 function subset_long_reads {
-	samtools fastq	
+	:
 }
 
 
