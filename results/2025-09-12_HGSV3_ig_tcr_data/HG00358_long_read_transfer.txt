@@ -1,0 +1,8 @@
+/vol1/fastq/ERR109/025/ERR10966425/ERR10966425.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR10966425.fastq.gz
+/vol1/fastq/ERR110/002/ERR11028102/ERR11028102.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR11028102.fastq.gz
+/vol1/fastq/ERR109/023/ERR10966423/ERR10966423.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR10966423.fastq.gz
+/vol1/fastq/ERR109/024/ERR10966424/ERR10966424.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR10966424.fastq.gz
+/vol1/fastq/ERR110/046/ERR11028146/ERR11028146.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR11028146.fastq.gz
+/vol1/fastq/ERR109/021/ERR10966421/ERR10966421.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR10966421.fastq.gz
+/vol1/fastq/ERR109/022/ERR10966422/ERR10966422.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR10966422.fastq.gz
+/vol1/fastq/ERR110/026/ERR11028126/ERR11028126.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR11028126.fastq.gz

@@ -1,0 +1,13 @@
+/vol1/fastq/ERR131/050/ERR13110550/ERR13110550.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110550.fastq.gz
+/vol1/fastq/ERR131/055/ERR13110555/ERR13110555.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110555.fastq.gz
+/vol1/fastq/ERR131/057/ERR13110557/ERR13110557.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110557.fastq.gz
+/vol1/fastq/ERR131/049/ERR13110549/ERR13110549.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110549.fastq.gz
+/vol1/fastq/ERR131/054/ERR13110554/ERR13110554.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110554.fastq.gz
+/vol1/fastq/ERR131/056/ERR13110556/ERR13110556.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110556.fastq.gz
+/vol1/fastq/ERR134/078/ERR13491778/ERR13491778.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13491778.fastq.gz
+/vol1/fastq/ERR131/052/ERR13110552/ERR13110552.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110552.fastq.gz
+/vol1/fastq/ERR134/079/ERR13491779/ERR13491779.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13491779.fastq.gz
+/vol1/fastq/ERR131/053/ERR13110553/ERR13110553.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110553.fastq.gz
+/vol1/fastq/ERR134/077/ERR13491777/ERR13491777.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13491777.fastq.gz
+/vol1/fastq/ERR131/051/ERR13110551/ERR13110551.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110551.fastq.gz
+/vol1/fastq/ERR131/058/ERR13110558/ERR13110558.fastq.gz	/scratch/hiciaf01/projects/imputation/data/2025-10-07_1KG_short_long/long_reads/ERR13110558.fastq.gz

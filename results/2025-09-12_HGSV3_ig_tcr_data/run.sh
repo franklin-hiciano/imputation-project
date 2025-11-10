@@ -394,30 +394,34 @@ do
 done < <(tail -n +2 contig_counts.tsv)
 }
 
-function count_paired_end_reads {
+function count_paired_end_reads_by_region {
         module load samtools
-        printf "sample\tR1\tR2\tsingletons\n" > paired_end_reads_counts.tsv
+        printf "sample\tregion\tR1\tR2\tsingletons\n" > paired_end_reads_counts_by_region.tsv
+
         while read -r sample
 do
         while read -r region region_alt
         do
+                zeros=("HG03248" "NA21487" "NA24385")
 
-		zeros=("NA21487" "NA24385")  # samples you want to set to 0
+                if [[ " ${zeros[@]} " =~ " ${sample} " ]]; then
+                        printf "%s\t%s\t0\t0\t0\n" "$sample" "${region_alt:0:3}" >> paired_end_reads_counts_by_region.tsv
+                        continue
+                fi
 
-        	if [[ " ${zeros[@]} " =~ " ${sample} " ]]; then
-                	printf "%s\t0\t0\t0\n" "$sample" >> paired_end_reads_counts.tsv
-                	continue
-        	fi
+                for fq in 1 2 singletons
+                do
+                        samtools faidx /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_${fq}.fq || true
+                done
 
-        	for fq in 1 2 singletons
-        	do
-                	samtools faidx /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${fq}.fq
-        	done
-
-	        printf "%s\t%s\t%s\t%s\n" ${sample} $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_1.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_2.fq.fai) $(wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_singletons.fq.fai)
+                printf "%s\t%s\t%s\t%s\t%s\n" \
+                "${sample}" "${region_alt:0:3}" \
+                "$([[ -s /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_1.fq.fai ]] && wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_1.fq.fai || echo 0)" \
+                "$([[ -s /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_2.fq.fai ]] && wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_2.fq.fai || echo 0)" \
+                "$([[ -s /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_singletons.fq.fai ]] && wc -l < /sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${region_alt:0:3}_singletons.fq.fai || echo 0)" \
+                >> paired_end_reads_counts_by_region.tsv
         done < region_names_with_alt.txt
-
-done < <(tail -n +2 contig_counts.tsv | cut -f1 | uniq) >> paired_end_reads_counts.tsv
+done < <(tail -n +2 contig_counts.tsv | cut -f1 | uniq)
 }
 
 
@@ -493,50 +497,30 @@ get_sample_long_reads_with_globus() {
 
 
 function concat_long_reads() {
-  while read -r sample; do
-    job_name="${sample}_joined_long_reads"
-    xfer_file="${results}/${sample}_long_read_transfer.txt"
-
-    # if the transfer list doesn't exist yet, build it first
-    [[ -s "$xfer_file" ]] || get_sample_long_reads_with_globus "$sample"
-
-    bsub -J "$job_name" \
-      -P "acc_oscarlr" \
-      -n "1" \
-      -R "span[hosts=1]" \
-      -R "rusage[mem=8000]" \
-      -q express \
-      -W 12:00 \
-      -o "${data}/long_reads/${job_name}.out" \
-      -e "${data}/long_reads/${job_name}.err" \
-      bash -lc "cut -f2 '$xfer_file' | xargs -r -I{} cat '{}' > '${data}/long_reads/${job_name}.fasta.gz'"
-  done < "${results}/sample_names_shortR_longR.txt"
-}
-
-
-function concat_long_reads() {
 	sample=$1
-	job_name="${sample}_joined_long_reads"
-        bsub_command="cat ${sample}_long_read_transfer.txt | cut -f2 | xargs -I {} cat ${data}/long_reads/{} > ${data}/long_reads/${job_name}.fasta.gz"
-        bsub -J "${job_name}" \
+    	job_name="${sample}_joined_long_reads"
+    	xfer_file="${results}/${sample}_long_read_transfer.txt"
+
+    	bsub -J "${job_name}" \
             -P "acc_oscarlr" \
-            -n "1" \
+            -n "16" \
             -R "span[hosts=1]" \
             -R "rusage[mem=8000]" \
             -q express \
             -W 12:00 \
-            -o "${data}/long_reads/${job_name}.out" \
-            -e "${data}/long_reads/${job_name}.err" \
-            "${bsub_command}"
-
+            -o "${data}/short_reads_aligned/${job_name}.out" \
+            -e "${data}/short_reads_aligned/${job_name}.err" \
+            "cat ${results}/${sample}_long_read_transfer.txt | cut -f2 | xargs -I {} cat /sc/arion{} > ${data}/long_reads/${sample}_joined.fasta.gz"
 }
 
-function align_long_read_to_combined_assembly() {
+
+function align_long_reads_to_combined_assembly() {
 	sample=$1
+	mkdir -p ${data}/long_reads_aligned
 	for hap in hap1 hap2
 do
 	job_name=${sample}_${hap}
-	bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -c ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined_long_reads.fasta.gz > ${data}/long_reads_paf/${job_name}.paf"
+	bsub_command="module load minimap2 && minimap2 -x asm5 -t 16 -a ${data}/assemblies/assemblies/${sample}.vrk-ps-sseq.asm-${hap}_combined_with_franken.fasta ${data}/long_reads/${sample}_joined.fasta.gz > ${data}/long_reads_aligned/${job_name}.sam"
 	bsub -J "${job_name}" \
                 -P "acc_oscarlr" \
                 -n "16" \
@@ -544,15 +528,60 @@ do
                 -R "rusage[mem=8000]" \
                 -q express \
                 -W 12:00 \
-                -o "${data}/long_reads_paf/${job_name}.out" \
-                -e "${data}/long_reads_paf/${job_name}.err" \
+                -o "${data}/long_reads_aligned/${job_name}.out" \
+                -e "${data}/long_reads_aligned/${job_name}.err" \
                 "${bsub_command}"
 done
 }
 
-function subset_long_reads {
-	:
+function convert_long_reads_sam_to_bam() {
+	module load samtools
+	sample=$1
+	for hap in hap1 hap2
+do
+	samtools view -b ${data}/long_reads_aligned/${sample}_${hap}.sam | samtools sort -o ${data}/long_reads_aligned/${sample}_${hap}.sorted.bam
+        samtools index ${data}/long_reads_aligned/${sample}_${hap}.sorted.bam
+done
 }
+
+function subset_long_reads() {
+        module load samtools
+	sample=$1
+	for hap in hap1 hap2
+do
+	samtools view -b -F 772 -L ${data}/bed_files/${sample}_${hap}_assembly_and_franken.bed ${data}/long_reads_aligned/${sample}_${hap}.sorted.bam | samtools fastq - > ${data}/subset_long_reads/${sample}_${hap}.fq
+done 
+}
+
+
+function subset_long_reads_by_region() {
+        module load samtools
+	sample=$1
+	for hap in hap1 hap2
+do
+	while read -r region region_alt
+	do
+		samtools view -Sbh -F 772 ${data}/short_reads_aligned/${sample}_${hap}_SR_aligned.bam --targets-file ${data}/bed_files/${sample}_${hap}_${region_alt:0:3}_assembly_and_franken.bed 
+        	samtools faidx "${data}/long_reads/${sample}/${sample}_joined_long_reads.fasta.gz" $(awk '{print $1":"$2+1"-"$3}' "${data}/lift_over/${sample}_${hap}_${region_alt:0:3}_assembly_and_franken.bed") > "/sc/arion/projects/oscarlr/franklin/imputation/2025-09-12_HGSV3_ig_tcr_data/${sample}_${hap}_${region_alt:0:3}_long.fa"
+	done < region_names_with_alt.txt
+
+done
+}
+
+function get_long {
+while read -r sample
+do	
+	#make_globus_transfer_file_for_long_reads ${sample}
+	#get_sample_long_reads_with_globus ${sample}
+	concat_long_reads ${sample}
+	convert_long_reads_sam_to_bam ${sample}
+	subset_long_reads ${sample}
+done < <(head -n 10 sample_names_shortR_longR.txt)
+}
+#make_globus_transfer_file_for_long_reads HG00171
+#get_sample_long_reads_with_globus HG00171
+
+
 
 
 #download_hg38
@@ -580,7 +609,6 @@ function subset_long_reads {
 
 
 
-#align_long_read_to_combined_assembly HG00096
 #download_franken_bed_file
 #combine_assembly_and_franken_bed_files
 #convert_short_reads_to_bam
@@ -589,4 +617,9 @@ function subset_long_reads {
 #count_paired_end_reads
 #make_bed_files_by_region
 #subset_short_reads_by_region
-combine_short_reads_fastq_files_by_region
+#combine_short_reads_fastq_files_by_region
+#count_paired_end_reads_by_region
+get_long
+
+#align_long_reads_to_combined_assembly HG00096
+#subset_long_reads HG00096
